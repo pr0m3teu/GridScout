@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from pydantic import BaseModel
 
+from dotenv import load_dotenv
 
 # App & CORS
 app = FastAPI(title="GridScout API", version="2.0.0")
@@ -22,6 +23,7 @@ app.add_middleware(
 
 
 # OpenAI client
+load_dotenv()
 OPENAI_KEY    = os.getenv("OPENAI_KEY", "")
 openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 
@@ -365,7 +367,7 @@ Paragraful 3: Oferă-i o recomandare directă și acționabilă (ex: depunere AT
 Răspunde DOAR cu cele 3 paragrafe separate de un rând liber. Fără alt text."""
 
     try:
-        resp = openai_client.chat.completions.create(
+        resp = openai_client.responses.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=650,
