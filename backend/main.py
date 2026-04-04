@@ -1,18 +1,27 @@
+"""
+GridScout — Backend FastAPI v3.0
++ env_flag (Natura 2000 / Pădurea Bârnova)
++ capex_eur / capex_per_mw
++ resource_efficiency (Open-Meteo API real)
++ elevation_meters (Open-Elevation API real)
+"""
 
 import math
 import os
 import re
 
+import httpx
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from pydantic import BaseModel
-
 from dotenv import load_dotenv
 
+# ─────────────────────────────────────────────────────────────────────────────
 # App & CORS
-app = FastAPI(title="GridScout API", version="2.0.0")
+# ─────────────────────────────────────────────────────────────────────────────
+app = FastAPI(title="GridScout API", version="3.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,12 +30,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# ─────────────────────────────────────────────────────────────────────────────
 # OpenAI client
+# ─────────────────────────────────────────────────────────────────────────────
 load_dotenv()
 OPENAI_KEY    = os.getenv("OPENAI_KEY", "")
 openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Constante mediu
+# ─────────────────────────────────────────────────────────────────────────────
+# Coordonate Pădurea Bârnova (arie protejată Natura 2000, jud. Iași)
+BARNOVA_LAT = 47.05
+BARNOVA_LON = 27.63
+BARNOVA_RADIUS_KM = 4.0
+
+# Cost estimat linie electrică (EUR/km)
+COST_EUR_PER_KM = 90_000.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mapping județ → zonă ANRE (Ordin 137/2021) — NESCHIMBAT
+# ─────────────────────────────────────────────────────────────────────────────
 COUNTY_TO_ZONE: dict[str, str] = {
     "GALAȚI": "A1",  "GALATI": "A1",
     "BRĂILA": "A2",  "BRAILA": "A2",
@@ -72,8 +96,9 @@ COUNTY_TO_ZONE: dict[str, str] = {
     "SUCEAVA": "J1",
 }
 
-
-#GPS – stații reale/reprezentative din România
+# ─────────────────────────────────────────────────────────────────────────────
+# GPS stații — NESCHIMBAT
+# ─────────────────────────────────────────────────────────────────────────────
 STATION_COORDS: dict[str, dict] = {
     # ── Iași / Vaslui (J3) ──────────────────────────────────────────────────
     "TATARASI":             {"lat": 47.1723, "lon": 27.6312, "judet": "IAȘI"},
@@ -142,7 +167,7 @@ STATION_COORDS: dict[str, dict] = {
     "MINTIA":               {"lat": 45.8612, "lon": 22.9012, "judet": "HUNEDOARA"},
 }
 
-# Centroide județe (fallback GPS)
+# Centroide județe (fallback GPS) — NESCHIMBAT
 COUNTY_CENTROIDS: dict[str, dict] = {
     "IAȘI":    {"lat": 47.1585, "lon": 27.6014},
     "VASLUI":  {"lat": 46.6401, "lon": 27.7298},
@@ -179,12 +204,17 @@ COUNTY_CENTROIDS: dict[str, dict] = {
     "MUREȘ":   {"lat": 46.5500, "lon": 24.6000},
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Căi fișiere Excel — NESCHIMBAT
+# ─────────────────────────────────────────────────────────────────────────────
+BASE_DIR        = os.path.dirname(__file__)
+FORMULAR_PATH   = os.path.join(BASE_DIR, "Formular_pentru_schimbul_de_date_10_decembrie2024_2024_12_18_18-33-54.xlsx")
+CAPACITATE_PATH = os.path.join(BASE_DIR, "Capacitate_de_racordare_conform_Ordin_ANRE_nr__137_2021_2026_03_10_15-30-43.xlsx")
 
-BASE_DIR         = os.path.dirname(__file__)
-FORMULAR_PATH    = os.path.join(BASE_DIR, "Formular_pentru_schimbul_de_date_10_decembrie2024_2024_12_18_18-33-54.xlsx")
-CAPACITATE_PATH  = os.path.join(BASE_DIR, "Capacitate_de_racordare_conform_Ordin_ANRE_nr__137_2021_2026_03_10_15-30-43.xlsx")
 
-
+# ─────────────────────────────────────────────────────────────────────────────
+# Funcții de citire Excel — NESCHIMBATE (Regula de Aur)
+# ─────────────────────────────────────────────────────────────────────────────
 def normalize_county(raw) -> str:
     return str(raw).strip().upper() if raw and str(raw) != "nan" else ""
 
@@ -251,6 +281,7 @@ def load_zone_capacity() -> dict[str, dict]:
     return result
 
 
+# ── Încărcare la startup ──────────────────────────────────────────────────────
 print("[INFO] Se încarcă datele Excel ANRE...")
 FORMULAR_DF   = load_formular_data()
 ZONE_CAPACITY = load_zone_capacity()
@@ -266,15 +297,20 @@ if not FORMULAR_DF.empty:
 print(f"[INFO] {len(STATION_STATS)} stații unice | {len(ZONE_CAPACITY)} zone ANRE | OpenAI: {'DA' if openai_client else 'NU'}")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Haversine — NESCHIMBAT
+# ─────────────────────────────────────────────────────────────────────────────
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6_371.0
-    p1, p2   = math.radians(lat1), math.radians(lat2)
-    dp, dl   = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
     a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-# Logică business
+# ─────────────────────────────────────────────────────────────────────────────
+# Logică rețea — NESCHIMBATĂ (Regula de Aur)
+# ─────────────────────────────────────────────────────────────────────────────
 def find_closest_station(lat: float, lon: float) -> tuple[str, float, dict]:
     best_name, best_dist, best_coords = "", float("inf"), {}
     for name, coords in STATION_COORDS.items():
@@ -288,7 +324,6 @@ def get_capacity_data(station_name: str, station_coords: dict, requested_mw: flo
     judet = normalize_county(station_coords.get("judet", ""))
     zona  = COUNTY_TO_ZONE.get(judet, "J3")
 
-    # MW aprobat la nivel de stație (din Formular)
     norm = re.sub(r"\s+", " ", station_name.upper().strip())
     match_rows = STATION_STATS[
         STATION_STATS["Stație"].apply(lambda x: re.sub(r"\s+", " ", x.upper().strip())) == norm
@@ -298,7 +333,6 @@ def get_capacity_data(station_name: str, station_coords: dict, requested_mw: flo
     zone_data      = ZONE_CAPACITY.get(zona, {})
     mw_zona_totala = zone_data.get("cap_totala", 500.0)
     mw_zona_ramasa = zone_data.get("cap_ramasa",  200.0)
-
 
     nr_statii_judet = len(STATION_STATS[STATION_STATS["Județ"] == judet]) if not STATION_STATS.empty else 5
     nr_statii_judet = max(nr_statii_judet, 1)
@@ -318,6 +352,7 @@ def get_capacity_data(station_name: str, station_coords: dict, requested_mw: flo
 
 
 def compute_risk_score(requested_mw: float, cap: dict) -> float:
+    # ─── FUNCȚIE PROTEJATĂ — NU SE MODIFICĂ ──────────────────────────────────
     cap_r  = cap["cap_ramasa_statie"]
     cap_s  = cap["cap_standard"]
     zona_r = cap["mw_zona_ramasa"]
@@ -335,67 +370,227 @@ def compute_risk_score(requested_mw: float, cap: dict) -> float:
     risc_zona = min(100.0, (requested_mw / max(zona_r, 1)) * 60.0)
 
     return round(min(100.0, max(0.0, 0.7 * risc_statie + 0.3 * risc_zona)), 1)
+    # ─────────────────────────────────────────────────────────────────────────
 
 
-# OpenAI insight
-def generate_ai_insight(station: str, dist_km: float, cap: dict, risk: float, mw: float) -> str:
+# ─────────────────────────────────────────────────────────────────────────────
+# NOU: Module de fezabilitate tehnico-economică
+# ─────────────────────────────────────────────────────────────────────────────
+
+def check_env_flag(lat: float, lon: float) -> bool:
+    """
+    Returnează True dacă locația se află la mai puțin de 4 km față de
+    Pădurea Bârnova (arie protejată Natura 2000, coordonate: 47.05N, 27.63E).
+    """
+    dist = haversine(lat, lon, BARNOVA_LAT, BARNOVA_LON)
+    return dist < BARNOVA_RADIUS_KM
+
+
+def compute_capex(dist_km: float, requested_mw: float) -> tuple[float, float]:
+    """
+    Estimează CAPEX linie electrică:
+    - capex_eur    = dist_km * 90.000 EUR/km
+    - capex_per_mw = capex_eur / requested_mw
+    """
+    capex_eur    = round(dist_km * COST_EUR_PER_KM, 2)
+    capex_per_mw = round(capex_eur / max(requested_mw, 0.01), 2)
+    return capex_eur, capex_per_mw
+
+
+async def fetch_solar_radiation(lat: float, lon: float) -> float:
+    """
+    Interogă Open-Meteo Archive API pentru media anuală a radiației solare
+    (shortwave_radiation_sum, kWh/m²/an) pentru anul 2023.
+    Fallback: 1250.0 kWh/m²/an dacă API-ul eșuează.
+    """
+    url = (
+        f"https://archive-api.open-meteo.com/v1/archive"
+        f"?latitude={lat}&longitude={lon}"
+        f"&start_date=2023-01-01&end_date=2023-12-31"
+        f"&daily=shortwave_radiation_sum&timezone=auto"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data   = resp.json()
+            values = data.get("daily", {}).get("shortwave_radiation_sum", [])
+            # Filtrăm None-urile și calculăm media
+            valid  = [v for v in values if v is not None]
+            if not valid:
+                print("[WARN] Open-Meteo: niciun datum valid — folosesc fallback 1250.0")
+                return 1250.0
+            media = round(sum(valid) / len(valid), 2)
+            print(f"[INFO] Open-Meteo: {len(valid)} zile, medie radiație = {media} kWh/m²/zi → {round(media * 365, 1)} kWh/m²/an")
+            # API-ul returnează valori zilnice (kWh/m²/zi); suma anuală e mai relevantă
+            return round(sum(valid), 1)
+    except httpx.TimeoutException:
+        print("[WARN] Open-Meteo: timeout — fallback 1250.0")
+        return 1250.0
+    except Exception as exc:
+        print(f"[WARN] Open-Meteo error: {exc} — fallback 1250.0")
+        return 1250.0
+
+
+async def fetch_elevation(lat: float, lon: float) -> int:
+    """
+    Interogă Open-Elevation API pentru elevația terenului la coordonatele date.
+    Fallback: 0 metri dacă API-ul eșuează.
+    """
+    url = f"https://api.open-elevation.com/api/v1/lookup?locations={lat},{lon}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data    = resp.json()
+            results = data.get("results", [])
+            if results:
+                elevation = int(results[0].get("elevation", 0))
+                print(f"[INFO] Open-Elevation: {elevation} m la ({lat}, {lon})")
+                return elevation
+            print("[WARN] Open-Elevation: răspuns gol — fallback 0")
+            return 0
+    except httpx.TimeoutException:
+        print("[WARN] Open-Elevation: timeout — fallback 0")
+        return 0
+    except Exception as exc:
+        print(f"[WARN] Open-Elevation error: {exc} — fallback 0")
+        return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenAI insight — actualizat cu env_flag și date fezabilitate
+# ─────────────────────────────────────────────────────────────────────────────
+def generate_ai_insight(
+    station: str,
+    dist_km: float,
+    cap: dict,
+    risk: float,
+    mw: float,
+    env_flag: bool = False,
+) -> str:
+    # Directivă suplimentară dacă locația se suprapune cu aria protejată
+    natura_2000_directive = ""
+    if env_flag:
+        natura_2000_directive = (
+            "\n\nATENȚIE OBLIGATORIE — NATURA 2000: Locația proiectului se află în perimetrul de "
+            "4 km față de Pădurea Bârnova, sit Natura 2000 (ROSCI0256). "
+            "Trebuie să avertizezi EXPLICIT investitorul că proiectul poate fi supus procedurii "
+            "de evaluare adecvată (EA) conform Directivei Habitate 92/43/CEE, că poate exista "
+            "INTERDICȚIE DE CONSTRUIRE sau condiționări severe din partea Agenției pentru Protecția "
+            "Mediului Iași, și că termenul procedurii de mediu poate depăși 18 luni. "
+            "Recomandă consultarea unui expert de mediu ÎNAINTE de orice demers tehnic."
+        )
+
     prompt = f"""Ești un consultant expert în rețele electrice din România.
 Generează un raport profesional de EXACT 3 paragrafe, în limba română, fără titluri, fără liste, fără bullets.
-Tonul: expert B2B, precis, acționabil. ADRESEAZĂ-TE DIRECT investitorului (folosește pronume de persoana a II-a, ex: "proiectul tău", "solicitarea ta", "capacitatea de care ai nevoie"). Bazează-te STRICT pe datele de mai jos.
+Tonul: expert B2B, precis, acționabil. ADRESEAZĂ-TE DIRECT investitorului (pronume pers. a II-a: "proiectul tău", "solicitarea ta"). Bazează-te STRICT pe datele de mai jos.
 
 DATE DE ANALIZĂ:
 - Stație racordare identificată: {station}
 - Județ / Zonă rețea ANRE: {cap.get('judet')} / Zona {cap.get('zona')}
 - Distanță locația ta → stație: {dist_km} km
-- Putere solicitată de tine: {mw} MW
+- Putere solicitată: {mw} MW
 - MW deja aprobat la stație (date ANRE): {cap.get('mw_aprobat_statie')} MW
 - Capacitate estimată stație: {cap.get('cap_standard')} MW
 - Capacitate reziduală stație: {cap.get('cap_ramasa_statie')} MW
 - Capacitate totală zonă {cap.get('zona')} (Ordin ANRE 137/2021): {cap.get('mw_zona_totala')} MW
 - Capacitate rămasă în zonă: {cap.get('mw_zona_ramasa')} MW
 - Scor risc congestionare GridScout: {risk}%
+- Suprapunere arie protejată Natura 2000 (Bârnova): {'DA — RISC MAJOR DE MEDIU' if env_flag else 'Nu'}
+{natura_2000_directive}
 
 STRUCTURA OBLIGATORIE:
-Paragraful 1: Explică starea actuală a stației și zonei de rețea, raportat la distanța față de locația aleasă de el.
-Paragraful 2: Analizează scorul de risc de {risk}% și explică-i clar ce înseamnă asta pentru solicitarea lui de {mw} MW.
-Paragraful 3: Oferă-i o recomandare directă și acționabilă (ex: depunere ATR, studiu de soluție, riscuri la care să se aștepte, sau dacă trebuie să caute altă locație).
+Paragraful 1: Explică starea actuală a stației și zonei de rețea, raportat la distanța față de locația aleasă.
+Paragraful 2: Analizează scorul de risc de {risk}% și explică-i clar implicațiile pentru solicitarea de {mw} MW.{'  Integrează avertismentul Natura 2000 în mod proeminent dacă env_flag este True.' if env_flag else ''}
+Paragraful 3: Oferă o recomandare directă și acționabilă (ATR, studiu de soluție, riscuri procedurale, sau dacă trebuie căutată altă locație).
 
 Răspunde DOAR cu cele 3 paragrafe separate de un rând liber. Fără alt text."""
 
     try:
         resp = openai_client.responses.create(
             model="gpt-4o-mini",
-            input= [{
+            input=[{
                 "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": prompt
-                    }
-                ]
+                "content": [{"type": "input_text", "text": prompt}]
             }]
         )
         return resp.output_text
     except Exception as e:
         print(f"[WARN] OpenAI API error: {e}")
+        return _fallback_insight(station, dist_km, cap, risk, mw, env_flag)
 
+
+def _fallback_insight(
+    station: str, dist_km: float, cap: dict,
+    risk: float, mw: float, env_flag: bool
+) -> str:
+    nivel = "RIDICAT" if risk >= 80 else ("MODERAT" if risk >= 40 else "SCĂZUT")
+    zona  = cap.get("zona", "N/A")
+    cap_r = cap.get("cap_ramasa_statie", 0)
+    mw_zr = cap.get("mw_zona_ramasa", 0)
+
+    p1 = (f"Stația {station} (zona ANRE {zona}) prezintă o capacitate reziduală estimată de "
+          f"{cap_r:.1f} MW, la {dist_km:.1f} km față de locația proiectului tău de {mw:.1f} MW.")
+    p2 = (f"Scorul de risc de {risk:.1f}% (nivel {nivel}) reflectă presiunea cumulată la nivel "
+          f"de stație și zonă; capacitatea rămasă în zona {zona} este de {mw_zr:.1f} MW conform "
+          f"Ordinului ANRE 137/2021.")
+    if env_flag:
+        p3 = ("⚠️ ATENȚIE CRITICĂ: Locația ta se suprapune cu aria protejată Natura 2000 — "
+              "Pădurea Bârnova (ROSCI0256). Înainte de orice demers tehnic, consultă un expert "
+              "de mediu; procedura de evaluare adecvată poate dura 12–18 luni și poate bloca "
+              "complet proiectul. Recomandăm urgent identificarea unei locații alternative.")
+    elif risk >= 40:
+        p3 = ("Racordarea necesită un studiu de soluție aprofundat și negocieri cu operatorul "
+              "de rețea; estimăm 6–12 luni pentru obținerea ATR cu posibile lucrări de întărire.")
+    else:
+        p3 = ("Condițiile de rețea sunt favorabile; recomandăm inițierea imediată a procedurii "
+              "ATR în regim standard ANRE, cu o estimare de 3–6 luni până la avizul pozitiv.")
+    return f"{p1}\n\n{p2}\n\n{p3}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Schema request
+# ─────────────────────────────────────────────────────────────────────────────
 class EvaluateRequest(BaseModel):
     lat: float
     lon: float
     requested_mw: float
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint principal
+# ─────────────────────────────────────────────────────────────────────────────
 @app.post("/api/evaluate-risk")
 async def evaluate_risk(req: EvaluateRequest):
     if req.requested_mw <= 0:
         raise HTTPException(400, detail="Puterea solicitată trebuie să fie pozitivă.")
 
+    # ── Logică existentă (neschimbată) ───────────────────────────────────────
     station_name, dist_km, station_coords = find_closest_station(req.lat, req.lon)
-    cap     = get_capacity_data(station_name, station_coords, req.requested_mw)
-    risk    = compute_risk_score(req.requested_mw, cap)
-    insight = generate_ai_insight(station_name, dist_km, cap, risk, req.requested_mw)
+    cap  = get_capacity_data(station_name, station_coords, req.requested_mw)
+    risk = compute_risk_score(req.requested_mw, cap)  # ← NESCHIMBAT
+
+    # ── Module noi de fezabilitate ────────────────────────────────────────────
+    env_flag   = check_env_flag(req.lat, req.lon)
+    capex_eur, capex_per_mw = compute_capex(dist_km, req.requested_mw)
+
+    # Apeluri API externe (async, cu fallback solid)
+    resource_efficiency = await fetch_solar_radiation(req.lat, req.lon)
+    elevation_meters    = await fetch_elevation(req.lat, req.lon)
+
+    # ── AI Insight (preia env_flag) ───────────────────────────────────────────
+    insight = generate_ai_insight(
+        station=station_name,
+        dist_km=dist_km,
+        cap=cap,
+        risk=risk,
+        mw=req.requested_mw,
+        env_flag=env_flag,
+    )
 
     return {
+        # ── Câmpuri existente ──────────────────────────────────────────────
         "closest_station":   station_name,
         "distance_km":       dist_km,
         "capacity_left":     cap["cap_ramasa_statie"],
@@ -403,21 +598,27 @@ async def evaluate_risk(req: EvaluateRequest):
         "ai_insight":        insight,
         "station_lat":       station_coords["lat"],
         "station_lon":       station_coords["lon"],
-
         "zona_retea":        cap["zona"],
         "judet_statie":      cap["judet"],
         "mw_aprobat_statie": cap["mw_aprobat_statie"],
         "mw_zona_ramasa":    cap["mw_zona_ramasa"],
         "mw_zona_totala":    cap["mw_zona_totala"],
+        # ── Câmpuri noi v3 ─────────────────────────────────────────────────
+        "env_flag":             env_flag,
+        "capex_eur":            capex_eur,
+        "capex_per_mw":         capex_per_mw,
+        "resource_efficiency":  resource_efficiency,
+        "elevation_meters":     elevation_meters,
     }
 
 
 @app.get("/")
 async def root():
     return {
-        "mesaj":             "GridScout API v2.0 ✅",
-        "excel_incarcat":    not FORMULAR_DF.empty,
-        "zone_incarcare":    len(ZONE_CAPACITY),
-        "statii_unice":      len(STATION_STATS),
-        "openai_activ":      openai_client is not None,
+        "mesaj":           "GridScout API v3.0 ✅",
+        "excel_incarcat":  not FORMULAR_DF.empty,
+        "zone_incarcare":  len(ZONE_CAPACITY),
+        "statii_unice":    len(STATION_STATS),
+        "openai_activ":    openai_client is not None,
+        "versiune":        "3.0.0",
     }

@@ -3,6 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import {
   Zap, MapPin, AlertTriangle, Brain,
   BarChart3, Loader2, Activity, ChevronRight, Radio,
+  ShieldAlert, TrendingUp, Sun, Mountain,
 } from 'lucide-react';
 import MapComponent from './components/MapComponent';
 
@@ -22,6 +23,15 @@ function getRiskConfig(score) {
     color: '#22c55e', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30',
     label: 'RISC SCĂZUT', dot: 'bg-emerald-400', glow: '0 0 20px #22c55e40',
   };
+}
+
+// ── Formatare EUR ─────────────────────────────────────────────────────────────
+function formatEur(value) {
+  if (value >= 1_000_000)
+    return `${(value / 1_000_000).toFixed(2)} M€`;
+  if (value >= 1_000)
+    return `${(value / 1_000).toFixed(1)} K€`;
+  return `${value.toFixed(0)} €`;
 }
 
 // ── Donut gauge ───────────────────────────────────────────────────────────────
@@ -99,6 +109,28 @@ function SkeletonRow({ label }) {
   );
 }
 
+// ── Banner Natura 2000 ────────────────────────────────────────────────────────
+function Natura2000Banner() {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl
+      bg-red-500/10 border border-red-500/40 animate-pulse-slow">
+      <ShieldAlert size={20} className="text-red-400 flex-shrink-0 mt-0.5" />
+      <div>
+        <p className="text-sm font-bold text-red-300 mb-1">
+          ⚠️ Arie Protejată Natura 2000 Detectată
+        </p>
+        <p className="text-xs text-red-200/80 leading-relaxed">
+          Locația selectată se află în perimetrul de 4 km față de{' '}
+          <strong>Pădurea Bârnova (ROSCI0256)</strong> — sit Natura 2000.
+          Proiectul poate fi supus <strong>procedurii de evaluare adecvată</strong> (Directiva
+          Habitate 92/43/CEE), cu posibile interdicții de construire. Consultați urgent
+          Agenția pentru Protecția Mediului Iași înainte de orice demers tehnic.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App principal
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,9 +178,7 @@ export default function App() {
     }
   };
 
-  const riskCfg = result ? getRiskConfig(result.risk_score) : null;
-
-  // Split AI insight into paragraphs
+  const riskCfg      = result ? getRiskConfig(result.risk_score) : null;
   const aiParagraphs = result?.ai_insight
     ? result.ai_insight.split(/\n\n+/).filter(p => p.trim())
     : [];
@@ -229,7 +259,7 @@ export default function App() {
             </button>
           </Card>
 
-          {/* Hartă */}
+          {/* Hartă — preia acum env_flag pentru a desena cercul Natura 2000 */}
           <Card className="flex-1 overflow-hidden p-2">
             <MapComponent
               userLat={lat ? parseFloat(lat) : null}
@@ -237,6 +267,7 @@ export default function App() {
               stationLat={result?.station_lat ?? null}
               stationLon={result?.station_lon ?? null}
               stationName={result?.closest_station ?? ''}
+              env_flag={result?.env_flag ?? false}
               onMapClick={handleMapClick}
             />
           </Card>
@@ -256,7 +287,6 @@ export default function App() {
             {result ? (
               <>
                 <RiskGauge score={result.risk_score} />
-
                 {/* Progress bar zonă */}
                 <div className="mt-5 pt-4 border-t border-slate-700/40">
                   <div className="flex justify-between text-xs text-slate-500 mb-2">
@@ -297,6 +327,9 @@ export default function App() {
             )}
           </Card>
 
+          {/* ── Banner Natura 2000 — apare DEASUPRA AI Copilot, doar dacă env_flag */}
+          {result?.env_flag && <Natura2000Banner />}
+
           {/* AI Copilot */}
           <div className="ai-card-border">
             <div className="bg-slate-900 rounded-[calc(1rem-2px)] p-5">
@@ -321,18 +354,15 @@ export default function App() {
               {result && !loading && (
                 <div className="space-y-3">
                   {aiParagraphs.map((para, i) => (
-                    <p key={i} className="text-slate-300 text-sm leading-relaxed">
-                      {para}
-                    </p>
+                    <p key={i} className="text-slate-300 text-sm leading-relaxed">{para}</p>
                   ))}
                 </div>
               )}
 
               {!result && !loading && (
                 <p className="text-slate-500 text-sm leading-relaxed">
-                  Raportul de analiză generat de GPT-4o-mini va apărea aici după rularea analizei —
-                  evaluează capacitatea rețelei, zona ANRE și riscul tehnic pentru a oferi
-                  o recomandare profesională adaptată proiectului tău.
+                  Raportul generat de GPT-4o-mini va apărea aici după rularea analizei —
+                  include evaluarea rețelei, analiza de mediu și recomandări acționabile.
                 </p>
               )}
             </div>
@@ -369,8 +399,61 @@ export default function App() {
             )}
           </Card>
 
+          {/* ── Card NOU: Fezabilitate Comercială & Tehnică ─────────────────── */}
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp size={16} className="text-emerald-400" />
+              <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+                Fezabilitate Comercială &amp; Tehnică
+              </h2>
+            </div>
+
+            {result ? (
+              <>
+                <TechRow
+                  label="CAPEX Estimat Linie"
+                  value={formatEur(result.capex_eur)}
+                  accent
+                />
+                <TechRow
+                  label="Cost Specific"
+                  value={`${formatEur(result.capex_per_mw)} / MW`}
+                />
+                <div className="flex items-center justify-between py-2.5 border-b border-slate-700/40">
+                  <span className="text-slate-400 text-xs flex items-center gap-1.5">
+                    <Sun size={12} className="text-amber-400" />
+                    Iradiere Solară (2023)
+                  </span>
+                  <span className="text-xs font-semibold text-slate-200">
+                    {result.resource_efficiency.toLocaleString('ro-RO')} kWh/m²/an
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2.5">
+                  <span className="text-slate-400 text-xs flex items-center gap-1.5">
+                    <Mountain size={12} className="text-slate-400" />
+                    Elevație Teren
+                  </span>
+                  <span className="text-xs font-semibold text-slate-200">
+                    {result.elevation_meters} m
+                  </span>
+                </div>
+
+                {/* Notă metodologică */}
+                <p className="text-xs text-slate-600 mt-3 pt-3 border-t border-slate-700/40 leading-relaxed">
+                  CAPEX = dist. la stație × 90.000 €/km. Iradiere: Open-Meteo Archive API (2023).
+                  Elevație: Open-Elevation API.
+                </p>
+              </>
+            ) : (
+              ['CAPEX Estimat Linie', 'Cost Specific (€/MW)',
+               'Iradiere Solară (kWh/m²/an)', 'Elevație Teren (m)'].map(r => (
+                <SkeletonRow key={r} label={r} />
+              ))
+            )}
+          </Card>
+
           <p className="text-center text-xs text-slate-600 pb-2">
-            GridScout v2.0 · Date ANRE Ordin 137/2021 + Formular ATR · AI: GPT-4o-mini
+            GridScout v3.0 · ANRE Ordin 137/2021 · Open-Meteo · Open-Elevation · GPT-4o-mini
           </p>
         </section>
       </main>

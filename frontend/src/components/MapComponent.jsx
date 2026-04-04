@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import {
   MapContainer,
   TileLayer,
   Marker,
   Popup,
   Polyline,
+  Circle,
   useMapEvents,
   useMap,
 } from 'react-leaflet';
@@ -34,8 +35,13 @@ const makeColorIcon = (color) =>
     shadowSize: [41, 41],
   });
 
-const greenIcon = makeColorIcon('green');
-const redIcon   = makeColorIcon('red');
+const greenIcon  = makeColorIcon('green');
+const redIcon    = makeColorIcon('red');
+const orangeIcon = makeColorIcon('orange');
+
+// ─── Coordonate Pădurea Bârnova (Natura 2000 ROSCI0256) ────────────────────
+const BARNOVA_CENTER = [47.05, 27.63];
+const BARNOVA_RADIUS = 4000; // metri
 
 // ─── Handler click pe hartă ─────────────────────────────────────────────────
 function MapClickHandler({ onMapClick }) {
@@ -76,6 +82,7 @@ export default function MapComponent({
   stationLat,
   stationLon,
   stationName,
+  env_flag,
   onMapClick,
 }) {
   const IASI_CENTER = [47.1585, 27.6014];
@@ -105,18 +112,56 @@ export default function MapComponent({
         stationLon={stationLon}
       />
 
-      {/* Markerul verde – locația utilizatorului */}
-      {userLat && userLon && (
-        <Marker position={[userLat, userLon]} icon={greenIcon}>
+      {/* ── Zona protejată Natura 2000 — Pădurea Bârnova ─────────────────── */}
+      {env_flag && (
+        <Circle
+          center={BARNOVA_CENTER}
+          radius={BARNOVA_RADIUS}
+          pathOptions={{
+            color: '#ef4444',
+            fillColor: '#ef4444',
+            fillOpacity: 0.2,
+            weight: 2,
+            dashArray: '6, 4',
+          }}
+        >
           <Popup>
-            <strong>📍 Locația ta</strong>
+            <div style={{ minWidth: '180px' }}>
+              <strong style={{ color: '#dc2626' }}>⚠️ Natura 2000</strong>
+              <br />
+              <span style={{ fontSize: '12px' }}>
+                Pădurea Bârnova (ROSCI0256)
+                <br />
+                Rază de protecție: 4 km
+              </span>
+            </div>
+          </Popup>
+        </Circle>
+      )}
+
+      {/* ── Marker verde — locația utilizatorului ───────────────────────── */}
+      {userLat && userLon && (
+        <Marker
+          position={[userLat, userLon]}
+          icon={env_flag ? orangeIcon : greenIcon}
+        >
+          <Popup>
+            <strong>{env_flag ? '⚠️ Locația ta' : '📍 Locația ta'}</strong>
             <br />
             {userLat}°N, {userLon}°E
+            {env_flag && (
+              <>
+                <br />
+                <span style={{ color: '#dc2626', fontSize: '11px', fontWeight: 600 }}>
+                  În zona Natura 2000!
+                </span>
+              </>
+            )}
           </Popup>
         </Marker>
       )}
 
-      {/* Markerul roșu – stația cea mai apropiată */}
+      {/* ── Marker roșu — stația cea mai apropiată ──────────────────────── */}
       {stationLat && stationLon && (
         <Marker position={[stationLat, stationLon]} icon={redIcon}>
           <Popup>
@@ -127,11 +172,16 @@ export default function MapComponent({
         </Marker>
       )}
 
-      {/* Linie de conectare */}
+      {/* ── Linie de conectare ───────────────────────────────────────────── */}
       {polylinePositions && (
         <Polyline
           positions={polylinePositions}
-          pathOptions={{ color: '#6366f1', weight: 2.5, dashArray: '8, 6', opacity: 0.85 }}
+          pathOptions={{
+            color: '#6366f1',
+            weight: 2.5,
+            dashArray: '8, 6',
+            opacity: 0.85,
+          }}
         />
       )}
     </MapContainer>
