@@ -74,7 +74,6 @@ COUNTY_TO_ZONE: dict[str, str] = {
 
 
 #GPS – stații reale/reprezentative din România
-
 STATION_COORDS: dict[str, dict] = {
     # ── Iași / Vaslui (J3) ──────────────────────────────────────────────────
     "TATARASI":             {"lat": 47.1723, "lon": 27.6312, "judet": "IAȘI"},
@@ -340,9 +339,6 @@ def compute_risk_score(requested_mw: float, cap: dict) -> float:
 
 # OpenAI insight
 def generate_ai_insight(station: str, dist_km: float, cap: dict, risk: float, mw: float) -> str:
-    # if not openai_client:
-    #     return _fallback_insight(station, dist_km, cap, risk, mw)
-
     prompt = f"""Ești un consultant expert în rețele electrice din România.
 Generează un raport profesional de EXACT 3 paragrafe, în limba română, fără titluri, fără liste, fără bullets.
 Tonul: expert B2B, precis, acționabil. ADRESEAZĂ-TE DIRECT investitorului (folosește pronume de persoana a II-a, ex: "proiectul tău", "solicitarea ta", "capacitatea de care ai nevoie"). Bazează-te STRICT pe datele de mai jos.
@@ -369,33 +365,19 @@ Răspunde DOAR cu cele 3 paragrafe separate de un rând liber. Fără alt text."
     try:
         resp = openai_client.responses.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=650,
-            temperature=0.55,
+            input= [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": prompt
+                    }
+                ]
+            }]
         )
-        return resp.choices[0].message.content.strip()
+        return resp.output_text
     except Exception as e:
         print(f"[WARN] OpenAI API error: {e}")
-        # return _fallback_insight(station, dist_km, cap, risk, mw)
-
-
-def _fallback_insight(station: str, dist_km: float, cap: dict, risk: float, mw: float) -> str:
-    nivel = "RIDICAT" if risk >= 80 else ("MODERAT" if risk >= 40 else "SCĂZUT")
-    zona, cap_r = cap.get("zona", "N/A"), cap.get("cap_ramasa_statie", 0)
-    mw_zr = cap.get("mw_zona_ramasa", 0)
-
-    p1 = (f"Stația {station} (zona ANRE {zona}) are {cap_r:.1f} MW capacitate reziduală estimată, "
-          f"din totalul de {cap.get('cap_standard', 50):.1f} MW capacitate standard, "
-          f"la {dist_km:.1f} km de locația proiectului.")
-    p2 = (f"Scorul de risc de {risk:.1f}% (nivel {nivel}) reflectă presiunea combinată la nivel "
-          f"de stație și zonă; capacitatea rămasă în zona {zona} conform Ord. ANRE 137/2021 "
-          f"este de {mw_zr:.1f} MW, față de solicitarea de {mw:.1f} MW.")
-    p3 = ("Recomandăm inițierea imediată a procedurii ATR și a unui studiu de soluție cu operatorul "
-          "de rețea; termenii de obținere a avizului variază între 3 și 12 luni în funcție de "
-          "necesitatea lucrărilor de întărire.") if risk >= 40 else \
-         ("Condițiile de rețea sunt favorabile racordării; recomandăm depunerea cererii ATR în "
-          "regim standard ANRE, cu o estimare de 3–6 luni până la obținerea avizului pozitiv.")
-    return f"{p1}\n\n{p2}\n\n{p3}"
 
 class EvaluateRequest(BaseModel):
     lat: float
