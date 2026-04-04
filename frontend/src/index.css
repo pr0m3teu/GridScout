@@ -2,48 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
+*, *::before, *::after {
   box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   margin: 0;
-  background-color: #0a0f1e;
-  color: #e2e8f0;
-  font-family: 'Inter', system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
+  background-color: #F5F6F8;
+  color: #111827;
+  font-family: 'DM Sans', system-ui, sans-serif;
 }
 
-/* Leaflet fix inside flex containers */
 .leaflet-container {
   height: 100%;
   width: 100%;
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   z-index: 0;
 }
 
-/* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #F5F6F8;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 3px;
+  background: #D1D5DB;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
 }
 
-/* Animated gradient border for AI card */
-@keyframes border-spin {
-  from { background-position: 0% 50%; }
-  to   { background-position: 100% 50%; }
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
-.ai-card-border {
-  background: linear-gradient(270deg, #6366f1, #8b5cf6, #06b6d4, #6366f1);
-  background-size: 300% 300%;
-  animation: border-spin 4s ease infinite;
-  padding: 2px;
-  border-radius: 1rem;
+.skeleton {
+  background: linear-gradient(90deg, #F3F4F6 25%, #E9EAED 50%, #F3F4F6 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: 4px;
 }

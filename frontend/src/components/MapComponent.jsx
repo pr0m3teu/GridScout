@@ -1,50 +1,37 @@
 import { useEffect } from 'react';
 import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Popup,
-  Polyline,
-  Circle,
-  useMapEvents,
-  useMap,
+  MapContainer, TileLayer, Marker, Popup,
+  Polyline, Circle, useMapEvents, useMap,
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// ─── Fix Leaflet default icon paths broken by Vite bundling ────────────────
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl:
-    'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl:
-    'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl:       'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl:     'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
-// ─── Icoane colorate ────────────────────────────────────────────────────────
-const makeColorIcon = (color) =>
+const colorIcon = (color) =>
   new L.Icon({
-    iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
-    shadowUrl:
-      'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
+    iconUrl:   `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+    iconSize:    [25, 41],
+    iconAnchor:  [12, 41],
     popupAnchor: [1, -34],
-    shadowSize: [41, 41],
+    shadowSize:  [41, 41],
   });
 
-const greenIcon  = makeColorIcon('green');
-const redIcon    = makeColorIcon('red');
-const orangeIcon = makeColorIcon('orange');
+const siteIcon    = colorIcon('blue');
+const siteWarnIcon = colorIcon('orange');
+const stationIcon = colorIcon('red');
 
-// ─── Coordonate Pădurea Bârnova (Natura 2000 ROSCI0256) ────────────────────
-const BARNOVA_CENTER = [47.05, 27.63];
-const BARNOVA_RADIUS = 4000; // metri
+const NATURA_2000_CENTER = [47.05, 27.63];
+const NATURA_2000_RADIUS = 4000;
+const DEFAULT_CENTER     = [47.1585, 27.6014];
 
-// ─── Handler click pe hartă ─────────────────────────────────────────────────
-function MapClickHandler({ onMapClick }) {
+function ClickHandler({ onMapClick }) {
   useMapEvents({
     click(e) {
       onMapClick(
@@ -56,17 +43,15 @@ function MapClickHandler({ onMapClick }) {
   return null;
 }
 
-// ─── Auto-pan când apare un rezultat ────────────────────────────────────────
-function AutoPan({ userLat, userLon, stationLat, stationLon }) {
+function BoundsFitter({ userLat, userLon, stationLat, stationLon }) {
   const map = useMap();
 
   useEffect(() => {
     if (userLat && userLon && stationLat && stationLon) {
-      const bounds = L.latLngBounds(
-        [userLat, userLon],
-        [stationLat, stationLon],
+      map.fitBounds(
+        L.latLngBounds([userLat, userLon], [stationLat, stationLon]),
+        { padding: [60, 60] },
       );
-      map.fitBounds(bounds, { padding: [60, 60] });
     } else if (userLat && userLon) {
       map.setView([userLat, userLon], 11);
     }
@@ -75,113 +60,93 @@ function AutoPan({ userLat, userLon, stationLat, stationLon }) {
   return null;
 }
 
-// ─── Componentă principală ───────────────────────────────────────────────────
-export default function MapComponent({
-  userLat,
-  userLon,
-  stationLat,
-  stationLon,
-  stationName,
-  env_flag,
-  onMapClick,
+export default function GridMap({
+  userLat, userLon,
+  stationLat, stationLon, stationName,
+  envFlag, onMapClick,
 }) {
-  const IASI_CENTER = [47.1585, 27.6014];
-
-  const polylinePositions =
-    userLat && userLon && stationLat && stationLon
-      ? [[userLat, userLon], [stationLat, stationLon]]
-      : null;
+  const connectionLine = userLat && userLon && stationLat && stationLon
+    ? [[userLat, userLon], [stationLat, stationLon]]
+    : null;
 
   return (
     <MapContainer
-      center={IASI_CENTER}
+      center={DEFAULT_CENTER}
       zoom={9}
       style={{ height: '100%', width: '100%' }}
-      className="rounded-xl"
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://carto.com/">CartoDB</a>'
+        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+        subdomains="abcd"
+        maxZoom={20}
       />
 
-      <MapClickHandler onMapClick={onMapClick} />
-      <AutoPan
-        userLat={userLat}
-        userLon={userLon}
-        stationLat={stationLat}
-        stationLon={stationLon}
+      <ClickHandler onMapClick={onMapClick} />
+      <BoundsFitter
+        userLat={userLat} userLon={userLon}
+        stationLat={stationLat} stationLon={stationLon}
       />
 
-      {/* ── Zona protejată Natura 2000 — Pădurea Bârnova ─────────────────── */}
-      {env_flag && (
+      {envFlag && (
         <Circle
-          center={BARNOVA_CENTER}
-          radius={BARNOVA_RADIUS}
+          center={NATURA_2000_CENTER}
+          radius={NATURA_2000_RADIUS}
           pathOptions={{
-            color: '#ef4444',
-            fillColor: '#ef4444',
-            fillOpacity: 0.2,
-            weight: 2,
-            dashArray: '6, 4',
+            color: '#B91C1C',
+            fillColor: '#FEE2E2',
+            fillOpacity: 0.25,
+            weight: 1.5,
+            dashArray: '6 4',
           }}
         >
           <Popup>
-            <div style={{ minWidth: '180px' }}>
-              <strong style={{ color: '#dc2626' }}>⚠️ Natura 2000</strong>
-              <br />
-              <span style={{ fontSize: '12px' }}>
-                Pădurea Bârnova (ROSCI0256)
-                <br />
-                Rază de protecție: 4 km
+            <div style={{ minWidth: 180, fontFamily: 'DM Sans, sans-serif' }}>
+              <strong style={{ color: '#B91C1C', display: 'block', marginBottom: 4 }}>
+                Protected Area — Natura 2000
+              </strong>
+              <span style={{ fontSize: 12, color: '#6B7280' }}>
+                Bârnova Forest (ROSCI0256)<br />
+                Buffer radius: 4 km
               </span>
             </div>
           </Popup>
         </Circle>
       )}
 
-      {/* ── Marker verde — locația utilizatorului ───────────────────────── */}
       {userLat && userLon && (
-        <Marker
-          position={[userLat, userLon]}
-          icon={env_flag ? orangeIcon : greenIcon}
-        >
+        <Marker position={[userLat, userLon]} icon={envFlag ? siteWarnIcon : siteIcon}>
           <Popup>
-            <strong>{env_flag ? '⚠️ Locația ta' : '📍 Locația ta'}</strong>
-            <br />
-            {userLat}°N, {userLon}°E
-            {env_flag && (
-              <>
-                <br />
-                <span style={{ color: '#dc2626', fontSize: '11px', fontWeight: 600 }}>
-                  În zona Natura 2000!
+            <div style={{ fontFamily: 'DM Sans, sans-serif' }}>
+              <strong style={{ display: 'block', marginBottom: 4 }}>Project Site</strong>
+              <span style={{ fontSize: 12, color: '#6B7280' }}>
+                {userLat}°N, {userLon}°E
+              </span>
+              {envFlag && (
+                <span style={{ display: 'block', fontSize: 11, color: '#B91C1C', fontWeight: 600, marginTop: 4 }}>
+                  Within Natura 2000 buffer
                 </span>
-              </>
-            )}
+              )}
+            </div>
           </Popup>
         </Marker>
       )}
 
-      {/* ── Marker roșu — stația cea mai apropiată ──────────────────────── */}
       {stationLat && stationLon && (
-        <Marker position={[stationLat, stationLon]} icon={redIcon}>
+        <Marker position={[stationLat, stationLon]} icon={stationIcon}>
           <Popup>
-            <strong>⚡ {stationName}</strong>
-            <br />
-            Stație de racordare
+            <div style={{ fontFamily: 'DM Sans, sans-serif' }}>
+              <strong style={{ display: 'block', marginBottom: 4 }}>{stationName}</strong>
+              <span style={{ fontSize: 12, color: '#6B7280' }}>Grid Interconnection Substation</span>
+            </div>
           </Popup>
         </Marker>
       )}
 
-      {/* ── Linie de conectare ───────────────────────────────────────────── */}
-      {polylinePositions && (
+      {connectionLine && (
         <Polyline
-          positions={polylinePositions}
-          pathOptions={{
-            color: '#6366f1',
-            weight: 2.5,
-            dashArray: '8, 6',
-            opacity: 0.85,
-          }}
+          positions={connectionLine}
+          pathOptions={{ color: '#2563EB', weight: 2, dashArray: '8 5', opacity: 0.7 }}
         />
       )}
     </MapContainer>
