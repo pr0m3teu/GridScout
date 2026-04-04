@@ -3,34 +3,28 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import {
   Zap, MapPin, AlertTriangle, BarChart3,
   Loader2, Activity, ChevronRight, Radio,
-  TrendingUp, Sun, Mountain, FileText, Shield,
+  TrendingUp, Sun, Mountain, FileText,
+  Shield, AlertCircle, CheckCircle, Info,
+  Navigation,
 } from 'lucide-react';
 import GridMap from './components/MapComponent';
 
 const API_URL = 'http://localhost:8000';
 
+// ── Risk score: higher = worse (congestion)
 function riskProfile(score) {
-  if (score >= 80) return {
-    color:      '#B91C1C',
-    background: '#FEF2F2',
-    border:     '#FECACA',
-    label:      'High Risk',
-    track:      '#FCA5A5',
-  };
-  if (score >= 40) return {
-    color:      '#92400E',
-    background: '#FFFBEB',
-    border:     '#FDE68A',
-    label:      'Moderate Risk',
-    track:      '#FCD34D',
-  };
-  return {
-    color:      '#14532D',
-    background: '#F0FDF4',
-    border:     '#BBF7D0',
-    label:      'Low Risk',
-    track:      '#4ADE80',
-  };
+  if (score >= 80) return { color: '#B91C1C', bg: '#FEF2F2', border: '#FECACA', label: 'High Risk' };
+  if (score >= 40) return { color: '#92400E', bg: '#FFFBEB', border: '#FDE68A', label: 'Moderate Risk' };
+  return             { color: '#14532D', bg: '#F0FDF4', border: '#BBF7D0', label: 'Low Risk' };
+}
+
+// ── Route score: higher = better (viability)
+function routeProfile(score) {
+  if (score === null || score === undefined) return null;
+  if (score >= 80) return { color: '#14532D', bg: '#F0FDF4', border: '#BBF7D0', label: 'Excellent Route' };
+  if (score >= 60) return { color: '#1D4ED8', bg: '#EBF5FF', border: '#DBEAFE', label: 'Viable Route' };
+  if (score >= 40) return { color: '#92400E', bg: '#FFFBEB', border: '#FDE68A', label: 'Constrained Route' };
+  return             { color: '#B91C1C', bg: '#FEF2F2', border: '#FECACA', label: 'High Constraint' };
 }
 
 function formatEur(value) {
@@ -40,50 +34,29 @@ function formatEur(value) {
 }
 
 function RiskGauge({ score }) {
-  const profile = riskProfile(score);
+  const p    = riskProfile(score);
   const data = [{ value: score }, { value: 100 - score }];
-
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="relative w-48 h-48">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie
-              data={data}
-              cx="50%" cy="50%"
-              innerRadius={64} outerRadius={84}
-              startAngle={90} endAngle={-270}
-              dataKey="value"
-              strokeWidth={0}
-            >
-              <Cell fill={profile.color} />
+            <Pie data={data} cx="50%" cy="50%" innerRadius={64} outerRadius={84}
+              startAngle={90} endAngle={-270} dataKey="value" strokeWidth={0}>
+              <Cell fill={p.color} />
               <Cell fill="#F3F4F6" />
             </Pie>
           </PieChart>
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span
-            className="text-4xl font-bold font-mono leading-none"
-            style={{ color: profile.color }}
-          >
-            {score}
-          </span>
+          <span className="text-4xl font-bold font-mono leading-none" style={{ color: p.color }}>{score}</span>
           <span className="text-sm text-ink-500 mt-1 font-mono">/ 100</span>
         </div>
       </div>
-      <div
-        className="flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold border"
-        style={{
-          color:           profile.color,
-          backgroundColor: profile.background,
-          borderColor:     profile.border,
-        }}
-      >
-        <span
-          className="w-1.5 h-1.5 rounded-full animate-pulse"
-          style={{ backgroundColor: profile.color }}
-        />
-        {profile.label}
+      <div className="flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold border"
+        style={{ color: p.color, backgroundColor: p.bg, borderColor: p.border }}>
+        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
+        {p.label}
       </div>
     </div>
   );
@@ -102,9 +75,7 @@ function SectionHeader({ icon: Icon, title, action }) {
     <div className="flex items-center justify-between mb-4">
       <div className="flex items-center gap-2">
         <Icon size={15} className="text-ink-400" />
-        <h2 className="text-xs font-semibold text-ink-500 uppercase tracking-widest">
-          {title}
-        </h2>
+        <h2 className="text-xs font-semibold text-ink-500 uppercase tracking-widest">{title}</h2>
       </div>
       {action}
     </div>
@@ -115,11 +86,7 @@ function DataRow({ label, value, mono = false, highlight = false }) {
   return (
     <div className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
       <span className="text-xs text-ink-500">{label}</span>
-      <span
-        className={`text-xs font-semibold ${mono ? 'font-mono' : ''} ${
-          highlight ? 'text-brand-700' : 'text-ink-900'
-        }`}
-      >
+      <span className={`text-xs font-semibold ${mono ? 'font-mono' : ''} ${highlight ? 'text-brand-700' : 'text-ink-900'}`}>
         {value}
       </span>
     </div>
@@ -129,16 +96,10 @@ function DataRow({ label, value, mono = false, highlight = false }) {
 function NumberInput({ label, id, value, onChange, placeholder, step = 'any' }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-xs font-semibold text-ink-500 uppercase tracking-wider">
-        {label}
-      </label>
+      <label htmlFor={id} className="text-xs font-semibold text-ink-500 uppercase tracking-wider">{label}</label>
       <input
-        id={id}
-        type="number"
-        step={step}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
+        id={id} type="number" step={step} value={value}
+        onChange={e => onChange(e.target.value)} placeholder={placeholder}
         className="w-full bg-canvas border border-border rounded-lg px-3 py-2.5
           text-ink-900 placeholder-ink-400 text-sm font-mono
           focus:outline-none focus:ring-2 focus:ring-brand-500/30
@@ -157,26 +118,155 @@ function SkeletonRow({ label }) {
   );
 }
 
-function EnvironmentalAlert() {
+// Dynamic constraint alerts — driven entirely by API response data
+function ConstraintAlerts({ violations, constraintSource }) {
+  if (!violations || violations.length === 0) return null;
+
+  const protectedCrossings = violations.filter(v => v.category === 'protected_area');
+  const infraCrossings     = violations.filter(v => v.category !== 'protected_area');
+
   return (
-    <Card className="p-4">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 w-7 h-7 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0">
-          <Shield size={14} className="text-risk-high" />
+    <div className="flex flex-col gap-2">
+      {protectedCrossings.map((v, i) => (
+        <Card key={i} className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 w-7 h-7 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0">
+              <Shield size={14} className="text-risk-high" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-risk-high mb-1 truncate">
+                Protected Area: {v.name}
+              </p>
+              <p className="text-xs text-ink-500 leading-relaxed">
+                {v.detail?.protection_type === 'national_park'
+                  ? 'National park designation. '
+                  : v.detail?.protection_type === 'nature_reserve'
+                  ? 'Nature reserve. '
+                  : 'Protected area. '}
+                {v.detail?.iucn_level && v.detail.iucn_level !== 'unknown'
+                  ? `IUCN Category ${v.detail.iucn_level}. `
+                  : ''}
+                An Appropriate Assessment under Habitats Directive 92/43/EEC may be required.
+                Consult an environmental specialist before any technical submission.
+              </p>
+            </div>
+          </div>
+        </Card>
+      ))}
+
+      {infraCrossings.length > 0 && (
+        <Card className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 w-7 h-7 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center flex-shrink-0">
+              <AlertCircle size={14} className="text-amber-700" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-800 mb-1">
+                Infrastructure Crossings
+              </p>
+              <p className="text-xs text-ink-500 leading-relaxed">
+                The proposed route crosses{' '}
+                {infraCrossings.map((v, i) => (
+                  <span key={i}>
+                    {i > 0 ? ', ' : ''}
+                    <span className="font-medium text-ink-700">{v.name.toLowerCase()}</span>
+                  </span>
+                ))}.
+                {' '}These crossings require technical permits and may extend construction timelines.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {constraintSource === 'fallback' && (
+        <div className="flex items-center gap-2 text-xs text-ink-400 px-1">
+          <Info size={12} />
+          Constraint data unavailable — live analysis could not be completed.
         </div>
-        <div>
-          <p className="text-sm font-semibold text-risk-high mb-1">
-            Natura 2000 Protected Area Detected
-          </p>
-          <p className="text-xs text-ink-500 leading-relaxed">
-            The selected site falls within 4 km of{' '}
-            <span className="font-semibold text-ink-700">Bârnova Forest (ROSCI0256)</span> —
-            a Natura 2000 conservation area. The project may require an Appropriate Assessment
-            under Habitats Directive 92/43/EEC. Consult an environmental specialist before
-            proceeding with any technical submissions.
-          </p>
+      )}
+    </div>
+  );
+}
+
+// Route viability score card
+function RouteViabilityCard({ routeScore, violations, constraintSource }) {
+  const p = routeProfile(routeScore);
+
+  const protectedCount = violations?.filter(v => v.category === 'protected_area').length ?? 0;
+  const infraCount     = violations?.filter(v => v.category !== 'protected_area').length ?? 0;
+
+  return (
+    <Card className="p-6">
+      <SectionHeader
+        icon={Navigation}
+        title="Route Viability"
+        action={
+          constraintSource && constraintSource !== 'unavailable' && (
+            <span className={`text-xs px-2 py-0.5 rounded-full border font-medium
+              ${constraintSource === 'overpass'
+                ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                : constraintSource === 'cache'
+                ? 'text-brand-700 bg-brand-50 border-brand-100'
+                : 'text-ink-500 bg-gray-50 border-gray-200'}`}>
+              {constraintSource === 'overpass' ? 'Live · Overpass' : constraintSource === 'cache' ? 'Cached' : constraintSource}
+            </span>
+          )
+        }
+      />
+
+      {routeScore !== null && routeScore !== undefined ? (
+        <>
+          <div className="flex items-center gap-4 mb-5">
+            <div className="flex-1">
+              <div className="flex items-baseline gap-1.5 mb-2">
+                <span className="text-3xl font-bold font-mono" style={{ color: p.color }}>{routeScore}</span>
+                <span className="text-sm text-ink-400 font-mono">/ 100</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-semibold rounded-full px-3 py-1 w-fit border"
+                style={{ color: p.color, backgroundColor: p.bg, borderColor: p.border }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
+                {p.label}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5 text-right">
+              {protectedCount > 0 && (
+                <div className="flex items-center gap-1.5 justify-end text-xs text-risk-high">
+                  <Shield size={11} />
+                  {protectedCount} protected area{protectedCount > 1 ? 's' : ''}
+                </div>
+              )}
+              {infraCount > 0 && (
+                <div className="flex items-center gap-1.5 justify-end text-xs text-amber-700">
+                  <AlertCircle size={11} />
+                  {infraCount} infrastructure crossing{infraCount > 1 ? 's' : ''}
+                </div>
+              )}
+              {protectedCount === 0 && infraCount === 0 && (
+                <div className="flex items-center gap-1.5 justify-end text-xs text-emerald-700">
+                  <CheckCircle size={11} />
+                  No constraints detected
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${routeScore}%`, backgroundColor: p.color }} />
+          </div>
+          <div className="flex justify-between text-xs text-ink-400 mt-1.5 font-mono">
+            <span>0</span>
+            <span>50</span>
+            <span>100</span>
+          </div>
+        </>
+      ) : (
+        <div className="flex items-center gap-2 text-xs text-ink-400 py-4">
+          <Info size={13} />
+          Route viability analysis unavailable — constraint data could not be retrieved.
         </div>
-      </div>
+      )}
     </Card>
   );
 }
@@ -219,7 +309,6 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ lat: pLat, lon: pLon, requested_mw: pMw }),
       });
-
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || `Server error ${res.status}`);
@@ -232,7 +321,7 @@ export default function App() {
     }
   };
 
-  const profile      = result ? riskProfile(result.risk_score) : null;
+  const riskCfg      = result ? riskProfile(result.risk_score) : null;
   const insightParas = result?.ai_insight
     ? result.ai_insight.split(/\n\n+/).filter(p => p.trim())
     : [];
@@ -271,41 +360,17 @@ export default function App() {
 
         {/* Left panel — 60% */}
         <section className="flex flex-col gap-4 p-5" style={{ width: '60%' }}>
-
           <Card className="p-5">
             <SectionHeader
               icon={MapPin}
               title="Site Parameters"
-              action={
-                <span className="text-xs text-ink-400">Click map to set coordinates</span>
-              }
+              action={<span className="text-xs text-ink-400">Click map to set coordinates</span>}
             />
-
             <div className="grid grid-cols-3 gap-3 mb-4">
-              <NumberInput
-                label="Latitude (°N)"
-                id="lat"
-                value={lat}
-                onChange={setLat}
-                placeholder="47.1585"
-              />
-              <NumberInput
-                label="Longitude (°E)"
-                id="lon"
-                value={lon}
-                onChange={setLon}
-                placeholder="27.6014"
-              />
-              <NumberInput
-                label="Requested Capacity (MW)"
-                id="mw"
-                value={mw}
-                onChange={setMw}
-                placeholder="15.0"
-                step="0.1"
-              />
+              <NumberInput label="Latitude (°N)"           id="lat" value={lat} onChange={setLat} placeholder="47.1585" />
+              <NumberInput label="Longitude (°E)"          id="lon" value={lon} onChange={setLon} placeholder="27.6014" />
+              <NumberInput label="Requested Capacity (MW)" id="mw"  value={mw}  onChange={setMw}  placeholder="15.0" step="0.1" />
             </div>
-
             {error && (
               <div className="mb-4 flex items-start gap-2 text-xs text-red-700
                 bg-red-50 border border-red-200 rounded-lg px-3.5 py-3">
@@ -313,21 +378,14 @@ export default function App() {
                 {error}
               </div>
             )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={loading}
+            <button onClick={handleSubmit} disabled={loading}
               className="w-full flex items-center justify-center gap-2
-                bg-brand-700 hover:bg-brand-800
-                disabled:opacity-50 disabled:cursor-not-allowed
+                bg-brand-700 hover:bg-brand-800 disabled:opacity-50 disabled:cursor-not-allowed
                 text-white font-semibold text-sm rounded-lg px-6 py-2.5
-                transition-colors duration-150 active:scale-[0.99]"
-            >
-              {loading ? (
-                <><Loader2 size={15} className="animate-spin" />Running Analysis…</>
-              ) : (
-                <><Activity size={15} />Run Interconnection Analysis<ChevronRight size={14} /></>
-              )}
+                transition-colors duration-150 active:scale-[0.99]">
+              {loading
+                ? <><Loader2 size={15} className="animate-spin" />Running Analysis…</>
+                : <><Activity size={15} />Run Interconnection Analysis<ChevronRight size={14} /></>}
             </button>
           </Card>
 
@@ -345,34 +403,24 @@ export default function App() {
         </section>
 
         {/* Right panel — 40% */}
-        <section
-          className="flex flex-col gap-4 p-5 pl-0 overflow-y-auto"
-          style={{ width: '40%' }}
-        >
+        <section className="flex flex-col gap-4 p-5 pl-0 overflow-y-auto" style={{ width: '40%' }}>
 
           {/* Congestion Risk Score */}
           <Card className="p-6">
             <SectionHeader icon={BarChart3} title="Congestion Risk Score" />
-
             {result ? (
               <>
                 <RiskGauge score={result.risk_score} />
-
                 <div className="mt-5 pt-4 border-t border-border">
                   <div className="flex justify-between text-xs text-ink-500 mb-2">
                     <span>Zone {result.zona_retea} — Network Utilization</span>
-                    <span className="font-mono font-semibold" style={{ color: profile?.color }}>
+                    <span className="font-mono font-semibold" style={{ color: riskCfg?.color }}>
                       {Math.round(zoneUsagePct)}% used
                     </span>
                   </div>
                   <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{
-                        width:           `${zoneUsagePct}%`,
-                        backgroundColor: profile?.color,
-                      }}
-                    />
+                    <div className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${zoneUsagePct}%`, backgroundColor: riskCfg?.color }} />
                   </div>
                   <div className="flex justify-between text-xs text-ink-400 mt-1.5 font-mono">
                     <span>0 MW</span>
@@ -382,8 +430,7 @@ export default function App() {
               </>
             ) : (
               <div className="flex flex-col items-center justify-center py-10 gap-3">
-                <div className="w-32 h-32 rounded-full border-2 border-dashed border-border
-                  flex items-center justify-center">
+                <div className="w-32 h-32 rounded-full border-2 border-dashed border-border flex items-center justify-center">
                   <BarChart3 size={28} className="text-ink-300" />
                 </div>
                 <p className="text-ink-400 text-xs text-center leading-relaxed">
@@ -393,34 +440,43 @@ export default function App() {
             )}
           </Card>
 
-          {/* Environmental Alert */}
-          {result?.env_flag && <EnvironmentalAlert />}
+          {/* Route Viability Score — shown after analysis */}
+          {result && (
+            <RouteViabilityCard
+              routeScore={result.route_score}
+              violations={result.route_violations}
+              constraintSource={result.constraint_source}
+            />
+          )}
+
+          {/* Dynamic constraint alerts — replaces hardcoded EnvironmentalAlert */}
+          {result && result.route_violations?.length > 0 && (
+            <ConstraintAlerts
+              violations={result.route_violations}
+              constraintSource={result.constraint_source}
+            />
+          )}
 
           {/* Intelligence Report */}
           <Card className="p-5">
             <SectionHeader icon={FileText} title="Intelligence Report" />
-
             {loading && (
               <div className="flex items-center gap-2 text-xs text-ink-400">
                 <Loader2 size={13} className="animate-spin text-brand-500" />
                 Generating report…
               </div>
             )}
-
             {result && !loading && (
               <div className="space-y-3 animate-fadeIn">
                 {insightParas.map((para, i) => (
-                  <p key={i} className="text-xs text-ink-700 leading-relaxed">
-                    {para}
-                  </p>
+                  <p key={i} className="text-xs text-ink-700 leading-relaxed">{para}</p>
                 ))}
               </div>
             )}
-
             {!result && !loading && (
               <p className="text-xs text-ink-400 leading-relaxed">
                 The AI-generated assessment will appear here after the analysis runs.
-                It covers grid capacity, environmental exposure, and actionable recommendations.
+                It covers grid capacity, route constraints, and actionable recommendations.
               </p>
             )}
           </Card>
@@ -428,24 +484,19 @@ export default function App() {
           {/* Grid Connection Details */}
           <Card className="p-5">
             <SectionHeader icon={Zap} title="Grid Connection Details" />
-
             {result ? (
               <>
-                <DataRow label="Substation"          value={result.closest_station}         highlight />
-                <DataRow label="County"              value={result.judet_statie || '—'} />
-                <DataRow label="ANRE Network Zone"   value={`Zone ${result.zona_retea}`}     highlight />
-                <DataRow label="Distance to Substation" value={`${result.distance_km} km`}  mono />
+                <DataRow label="Substation"              value={result.closest_station}            highlight />
+                <DataRow label="County"                  value={result.judet_statie || '—'} />
+                <DataRow label="ANRE Network Zone"       value={`Zone ${result.zona_retea}`}        highlight />
+                <DataRow label="Distance to Substation"  value={`${result.distance_km} km`}         mono />
                 <DataRow label="Approved Capacity (ANRE)" value={`${result.mw_aprobat_statie} MW`} mono />
-                <DataRow label="Remaining Station Capacity" value={`${result.capacity_left} MW`} mono highlight />
-                <DataRow label="Zone Total Capacity" value={`${result.mw_zona_totala} MW`}  mono />
-                <DataRow label="Zone Remaining Capacity" value={`${result.mw_zona_ramasa} MW`} mono highlight />
-                <DataRow label="Requested Capacity"  value={`${mw} MW`}                     mono />
-                <DataRow label="Congestion Risk Score" value={`${result.risk_score} / 100`} mono />
-                <DataRow
-                  label="Substation Coordinates"
-                  value={`${result.station_lat}°N, ${result.station_lon}°E`}
-                  mono
-                />
+                <DataRow label="Remaining Station Capacity" value={`${result.capacity_left} MW`}   mono highlight />
+                <DataRow label="Zone Total Capacity"     value={`${result.mw_zona_totala} MW`}      mono />
+                <DataRow label="Zone Remaining Capacity" value={`${result.mw_zona_ramasa} MW`}      mono highlight />
+                <DataRow label="Requested Capacity"      value={`${mw} MW`}                         mono />
+                <DataRow label="Congestion Risk Score"   value={`${result.risk_score} / 100`}       mono />
+                <DataRow label="Substation Coordinates"  value={`${result.station_lat}°N, ${result.station_lon}°E`} mono />
               </>
             ) : (
               ['Substation', 'ANRE Network Zone', 'Distance', 'Approved Capacity',
@@ -458,11 +509,10 @@ export default function App() {
           {/* Commercial Feasibility */}
           <Card className="p-5">
             <SectionHeader icon={TrendingUp} title="Commercial Feasibility" />
-
             {result ? (
               <>
-                <DataRow label="Estimated Grid Connection CAPEX" value={formatEur(result.capex_eur)} mono highlight />
-                <DataRow label="Specific Cost"                   value={`${formatEur(result.capex_per_mw)} / MW`} mono />
+                <DataRow label="Grid Connection CAPEX" value={formatEur(result.capex_eur)}    mono highlight />
+                <DataRow label="Specific Cost"         value={`${formatEur(result.capex_per_mw)} / MW`} mono />
                 <div className="flex items-center justify-between py-2.5 border-b border-border">
                   <span className="text-xs text-ink-500 flex items-center gap-1.5">
                     <Sun size={11} className="text-amber-500" />
@@ -482,8 +532,9 @@ export default function App() {
                   </span>
                 </div>
                 <p className="text-xs text-ink-400 mt-3 pt-3 border-t border-border leading-relaxed">
-                  CAPEX estimate: distance to substation × €90,000/km.
-                  Irradiance: Open-Meteo Archive API. Elevation: Open-Elevation API.
+                  CAPEX estimate: distance × €90,000/km.
+                  Irradiance: Open-Meteo Archive API.
+                  Elevation: Open-Elevation API.
                 </p>
               </>
             ) : (
@@ -495,7 +546,7 @@ export default function App() {
           </Card>
 
           <p className="text-center text-xs text-ink-400 pb-2">
-            GridScout · ANRE Order 137/2021 · Open-Meteo · Open-Elevation
+            GridScout · ANRE Order 137/2021 · OpenStreetMap / Overpass · Open-Meteo · Open-Elevation
           </p>
         </section>
       </main>

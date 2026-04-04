@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 
@@ -9,9 +10,12 @@ from openai import OpenAI
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+from geo import DEFAULT_CONFIG, GeoAnalysisService
+from geo.scoring import Violation
+
 load_dotenv()
 
-app = FastAPI(title="GridScout API", version="3.0.0")
+app = FastAPI(title="GridScout API", version="4.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,12 +24,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_openai_key    = os.getenv("OPENAI_KEY", "")
-openai_client  = OpenAI(api_key=_openai_key) if _openai_key else None
+_openai_key   = os.getenv("OPENAI_KEY", "")
+openai_client = OpenAI(api_key=_openai_key) if _openai_key else None
 
-BARNOVA_LAT       = 47.05
-BARNOVA_LON       = 27.63
-BARNOVA_RADIUS_KM = 4.0
+# Single shared instance — holds the in-memory constraint cache
+geo_service = GeoAnalysisService(DEFAULT_CONFIG)
+
 LINE_COST_EUR_PER_KM = 90_000.0
 
 COUNTY_TO_ZONE: dict[str, str] = {
@@ -185,7 +189,7 @@ def load_formular() -> pd.DataFrame:
 
 def load_zone_capacity() -> dict[str, dict]:
     try:
-        df  = pd.read_excel(CAPACITATE_PATH, sheet_name=0, header=0)
+        df = pd.read_excel(CAPACITATE_PATH, sheet_name=0, header=0)
         df.columns = [str(c).strip() for c in df.columns]
         result: dict[str, dict] = {}
         for _, row in df.iterrows():
@@ -242,24 +246,22 @@ STATION_STATS = build_station_stats(FORMULAR_DF)
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0
     φ1, φ2 = math.radians(lat1), math.radians(lat2)
-    dφ      = math.radians(lat2 - lat1)
-    dλ      = math.radians(lon2 - lon1)
+    dφ = math.radians(lat2 - lat1)
+    dλ = math.radians(lon2 - lon1)
     a = math.sin(dφ / 2) ** 2 + math.cos(φ1) * math.cos(φ2) * math.sin(dλ / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def find_closest_station(lat: float, lon: float) -> tuple[str, float, dict]:
-    best_name  = ""
-    best_dist  = float("inf")
+    best_name   = ""
+    best_dist   = float("inf")
     best_coords: dict = {}
-
     for name, coords in STATION_COORDS.items():
         d = haversine(lat, lon, coords["lat"], coords["lon"])
         if d < best_dist:
             best_dist   = d
             best_name   = name
             best_coords = coords
-
     return best_name, round(best_dist, 2), best_coords
 
 
@@ -268,9 +270,9 @@ def get_capacity_data(station: str, station_coords: dict, requested_mw: float) -
     judet     = normalize_county(raw_judet) if raw_judet else ""
     zona      = COUNTY_TO_ZONE.get(judet, "N/A")
 
-    stats         = STATION_STATS.get(station, {})
-    mw_aprobat    = stats.get("mw_aprobat", 0.0)
-    cap_standard  = max(mw_aprobat * 2.5, requested_mw * 3, 50.0)
+    stats        = STATION_STATS.get(station, {})
+    mw_aprobat   = stats.get("mw_aprobat", 0.0)
+    cap_standard = max(mw_aprobat * 2.5, requested_mw * 3, 50.0)
     cap_remaining = max(0.0, cap_standard - mw_aprobat)
 
     zone_data      = ZONE_CAPACITY.get(zona, {})
@@ -299,17 +301,12 @@ def compute_risk_score(requested_mw: float, cap: dict) -> float:
         station_risk = min(99.9, (requested_mw / cap_s) * 100 * (1 + (requested_mw / max(cap_r, 0.01)) * 0.5))
 
     zone_risk = min(100.0, (requested_mw / max(zona_r, 1)) * 60.0)
-
     return round(min(100.0, max(0.0, 0.7 * station_risk + 0.3 * zone_risk)), 1)
 
 
-def is_natura_2000(lat: float, lon: float) -> bool:
-    return haversine(lat, lon, BARNOVA_LAT, BARNOVA_LON) < BARNOVA_RADIUS_KM
-
-
 def estimate_capex(dist_km: float, requested_mw: float) -> tuple[float, float]:
-    capex     = round(dist_km * LINE_COST_EUR_PER_KM, 2)
-    per_mw    = round(capex / max(requested_mw, 0.01), 2)
+    capex  = round(dist_km * LINE_COST_EUR_PER_KM, 2)
+    per_mw = round(capex / max(requested_mw, 0.01), 2)
     return capex, per_mw
 
 
@@ -343,44 +340,71 @@ async def fetch_elevation(lat: float, lon: float) -> int:
         return 0
 
 
+def _format_violations_for_prompt(violations: list[Violation]) -> str:
+    if not violations:
+        return "None detected."
+    lines = []
+    for v in violations:
+        if v.category == "protected_area":
+            ptype = v.detail.get("protection_type", "protected area")
+            iucn  = v.detail.get("iucn_level", "")
+            iucn_str = f" (IUCN {iucn})" if iucn and iucn != "unknown" else ""
+            lines.append(f"  - {v.name}{iucn_str} [{ptype}]")
+        else:
+            lines.append(f"  - {v.name}")
+    return "\n".join(lines)
+
+
 def generate_insight(
-    station: str, dist_km: float, cap: dict,
-    risk: float, mw: float, env_flag: bool,
+    station:        str,
+    dist_km:        float,
+    cap:            dict,
+    risk:           float,
+    mw:             float,
+    env_flag:       bool,
+    crossed_areas:  list[str],
+    route_score:    float | None,
+    violations:     list[Violation],
 ) -> str:
-    natura_note = ""
-    if env_flag:
-        natura_note = (
-            "\n\nCRITICAL — NATURA 2000: The project site falls within 4 km of Bârnova Forest "
-            "(ROSCI0256). You must explicitly warn the investor that an Appropriate Assessment "
-            "(AA) procedure under Habitats Directive 92/43/EEC may be required, that construction "
-            "may be prohibited or subject to severe conditions from the Iași Environmental Protection "
-            "Agency, and that the environmental procedure can take more than 18 months. "
-            "Strongly recommend consulting an environmental specialist before any technical steps."
+    env_block = ""
+    if env_flag and crossed_areas:
+        area_list = ", ".join(crossed_areas)
+        env_block = (
+            f"\n\nCRITICAL — PROTECTED AREAS: The connection route crosses the following "
+            f"protected or restricted zones detected via OpenStreetMap / Natura 2000 data: "
+            f"{area_list}. An Appropriate Assessment (AA) under Habitats Directive 92/43/EEC "
+            f"may be required. Construction may be subject to severe conditions or outright "
+            f"prohibition. Consult a licensed environmental specialist before any technical "
+            f"submission. Procedure timelines can exceed 18 months."
         )
 
+    violations_str = _format_violations_for_prompt(violations)
+    route_score_str = f"{route_score:.1f}/100" if route_score is not None else "unavailable"
+
     prompt = f"""You are an expert consultant in Romanian electrical grid interconnection.
-Generate a professional assessment in exactly 3 paragraphs, in English, with no titles, lists, or bullets.
+Generate a professional assessment in exactly 3 paragraphs, in English, no titles, lists, or bullets.
 Tone: expert B2B, precise, actionable. Address the investor directly ("your project", "your site").
 Base your analysis strictly on the data below.
 
 ANALYSIS DATA:
-- Identified interconnection substation: {station}
+- Interconnection substation: {station}
 - County / ANRE network zone: {cap.get('judet')} / Zone {cap.get('zona')}
 - Distance from site to substation: {dist_km} km
 - Requested capacity: {mw} MW
 - Approved capacity at substation (ANRE data): {cap.get('mw_aprobat_statie')} MW
-- Estimated substation capacity: {cap.get('cap_standard')} MW
 - Remaining substation capacity: {cap.get('cap_ramasa_statie')} MW
 - Total zone capacity — Zone {cap.get('zona')} (ANRE Order 137/2021): {cap.get('mw_zona_totala')} MW
 - Remaining zone capacity: {cap.get('mw_zona_ramasa')} MW
-- GridScout congestion risk score: {risk}%
-- Natura 2000 protected area overlap (Bârnova): {'YES — HIGH ENVIRONMENTAL RISK' if env_flag else 'No'}
-{natura_note}
+- Congestion risk score: {risk}% (higher = worse)
+- Route viability score: {route_score_str} (higher = better)
+- Route constraints detected:
+{violations_str}
+{env_block}
 
-REQUIRED STRUCTURE:
-Paragraph 1: Describe the current state of the substation and network zone relative to the distance from the chosen site.
-Paragraph 2: Analyse the {risk}% risk score and clearly explain the implications for a {mw} MW request.{' Prominently integrate the Natura 2000 warning.' if env_flag else ''}
-Paragraph 3: Provide a direct, actionable recommendation (grid access request, solution study, procedural risks, or whether an alternative site should be sought).
+STRUCTURE:
+Paragraph 1: State of the substation and network zone relative to the site distance.
+Paragraph 2: Analyse the {risk}% congestion risk and the {route_score_str} route viability, explaining implications for the {mw} MW request.{' Prominently address the protected area crossings.' if env_flag else ''}
+Paragraph 3: Direct, actionable recommendation (grid access request, solution study, procedural risks, or alternative site).
 
 Respond ONLY with the 3 paragraphs separated by a blank line. No other text."""
 
@@ -394,52 +418,61 @@ Respond ONLY with the 3 paragraphs separated by a blank line. No other text."""
         except Exception as e:
             print(f"[WARN] OpenAI error: {e}")
 
-    return _fallback_insight(station, dist_km, cap, risk, mw, env_flag)
+    return _fallback_insight(station, dist_km, cap, risk, mw, crossed_areas, route_score)
 
 
 def _fallback_insight(
-    station: str, dist_km: float, cap: dict,
-    risk: float, mw: float, env_flag: bool,
+    station:       str,
+    dist_km:       float,
+    cap:           dict,
+    risk:          float,
+    mw:            float,
+    crossed_areas: list[str],
+    route_score:   float | None,
 ) -> str:
-    level  = "High" if risk >= 80 else ("Moderate" if risk >= 40 else "Low")
-    zona   = cap.get("zona", "N/A")
-    cap_r  = cap.get("cap_ramasa_statie", 0)
-    zona_r = cap.get("mw_zona_ramasa", 0)
+    risk_level  = "High" if risk >= 80 else ("Moderate" if risk >= 40 else "Low")
+    zona        = cap.get("zona", "N/A")
+    cap_r       = cap.get("cap_ramasa_statie", 0)
+    zona_r      = cap.get("mw_zona_ramasa", 0)
+    route_str   = f"{route_score:.1f}/100" if route_score is not None else "unavailable"
 
     p1 = (
         f"The {station} substation (ANRE Zone {zona}) has an estimated residual capacity "
         f"of {cap_r:.1f} MW, located {dist_km:.1f} km from your proposed {mw:.1f} MW project site."
     )
     p2 = (
-        f"The congestion risk score of {risk:.1f}% ({level} Risk) reflects cumulative pressure "
+        f"The congestion risk score of {risk:.1f}% ({risk_level} Risk) reflects cumulative pressure "
         f"at both the substation and zone levels; the remaining zone capacity in Zone {zona} "
-        f"is {zona_r:.1f} MW per ANRE Order 137/2021."
+        f"is {zona_r:.1f} MW per ANRE Order 137/2021. "
+        f"The route viability score is {route_str}."
     )
-    if env_flag:
+
+    if crossed_areas:
+        area_list = ", ".join(crossed_areas)
         p3 = (
-            "CRITICAL: Your site overlaps with the Natura 2000 protected area — Bârnova Forest "
-            "(ROSCI0256). Before any technical steps, consult an environmental specialist. "
-            "The Appropriate Assessment procedure may take 12–18 months and could block the project "
-            "entirely. We strongly recommend identifying an alternative site immediately."
+            f"CRITICAL: The proposed connection route crosses protected area(s): {area_list}. "
+            "Before any technical steps, engage a licensed environmental consultant. "
+            "The Appropriate Assessment procedure may take 12–18 months and could block "
+            "the project. Immediately evaluate alternative routing or an alternative site."
         )
     elif risk >= 40:
         p3 = (
-            "Grid connection will require a detailed solution study and negotiations with the DSO; "
-            "expect 6–12 months to obtain the grid access certificate, with possible network "
-            "reinforcement works required."
+            "Grid connection will require a detailed solution study and DSO negotiations; "
+            "expect 6–12 months to obtain the grid access certificate, potentially with "
+            "network reinforcement works."
         )
     else:
         p3 = (
-            "Grid conditions are favourable. We recommend initiating the standard ANRE grid "
-            "access request immediately, with an estimated 3–6 months to receive a positive opinion."
+            "Grid conditions are favourable. Initiate the standard ANRE grid access request "
+            "immediately; estimated 3–6 months for a positive opinion."
         )
     return f"{p1}\n\n{p2}\n\n{p3}"
 
 
 class EvaluateRequest(BaseModel):
-    lat:           float
-    lon:           float
-    requested_mw:  float
+    lat:          float
+    lon:          float
+    requested_mw: float
 
 
 @app.post("/api/evaluate-risk")
@@ -451,17 +484,59 @@ async def evaluate_risk(req: EvaluateRequest):
     cap  = get_capacity_data(station_name, station_coords, req.requested_mw)
     risk = compute_risk_score(req.requested_mw, cap)
 
-    env_flag             = is_natura_2000(req.lat, req.lon)
     capex_eur, capex_per_mw = estimate_capex(dist_km, req.requested_mw)
-    solar_irradiance     = await fetch_solar_irradiance(req.lat, req.lon)
-    elevation            = await fetch_elevation(req.lat, req.lon)
+
+    # Run geo analysis and external data fetches concurrently
+    geo_task      = geo_service.evaluate_route(
+        site_lat=req.lat, site_lon=req.lon,
+        station_lat=station_coords["lat"], station_lon=station_coords["lon"],
+        dist_km=dist_km,
+    )
+    solar_task    = fetch_solar_irradiance(req.lat, req.lon)
+    elevation_task = fetch_elevation(req.lat, req.lon)
+
+    results = await asyncio.gather(geo_task, solar_task, elevation_task, return_exceptions=True)
+
+    geo_result, solar_irradiance, elevation = results
+
+    # Geo analysis: degrade gracefully if Overpass is unreachable
+    if isinstance(geo_result, Exception):
+        print(f"[WARN] Geo analysis failed: {geo_result}")
+        env_flag          = False
+        route_score       = None
+        crossed_areas     = []
+        route_violations  = []
+        constraint_source = "unavailable"
+    else:
+        env_flag          = geo_result.env_flag
+        route_score       = geo_result.total
+        crossed_areas     = geo_result.crossed_areas
+        route_violations  = [
+            {"category": v.category, "name": v.name, "penalty": v.penalty, "detail": v.detail}
+            for v in geo_result.violations
+        ]
+        constraint_source = geo_result.constraint_source
+
+    # External data fallbacks
+    if isinstance(solar_irradiance, Exception):
+        solar_irradiance = 1250.0
+    if isinstance(elevation, Exception):
+        elevation = 0
 
     insight = generate_insight(
-        station=station_name, dist_km=dist_km, cap=cap,
-        risk=risk, mw=req.requested_mw, env_flag=env_flag,
+        station=station_name,
+        dist_km=dist_km,
+        cap=cap,
+        risk=risk,
+        mw=req.requested_mw,
+        env_flag=env_flag,
+        crossed_areas=crossed_areas,
+        route_score=route_score,
+        violations=[] if isinstance(geo_result, Exception) else geo_result.violations,
     )
 
     return {
+        # Grid capacity fields (unchanged)
         "closest_station":    station_name,
         "distance_km":        dist_km,
         "capacity_left":      cap["cap_ramasa_statie"],
@@ -474,21 +549,28 @@ async def evaluate_risk(req: EvaluateRequest):
         "mw_aprobat_statie":  cap["mw_aprobat_statie"],
         "mw_zona_ramasa":     cap["mw_zona_ramasa"],
         "mw_zona_totala":     cap["mw_zona_totala"],
-        "env_flag":           env_flag,
         "capex_eur":          capex_eur,
         "capex_per_mw":       capex_per_mw,
         "resource_efficiency": solar_irradiance,
         "elevation_meters":   elevation,
+
+        # Geo analysis fields (new)
+        "env_flag":           env_flag,           # backward compat: bool
+        "route_score":        route_score,         # 0–100, higher = more viable
+        "crossed_areas":      crossed_areas,        # list of protected area names
+        "route_violations":   route_violations,     # detailed constraint list
+        "constraint_source":  constraint_source,    # "overpass" | "cache" | "fallback" | "unavailable"
     }
 
 
 @app.get("/health")
 async def health():
     return {
-        "status":         "ok",
-        "excel_loaded":   not FORMULAR_DF.empty,
-        "zones_loaded":   len(ZONE_CAPACITY),
-        "stations_known": len(STATION_STATS),
-        "ai_enabled":     openai_client is not None,
-        "version":        "3.0.0",
+        "status":           "ok",
+        "excel_loaded":     not FORMULAR_DF.empty,
+        "zones_loaded":     len(ZONE_CAPACITY),
+        "stations_known":   len(STATION_STATS),
+        "ai_enabled":       openai_client is not None,
+        "geo_cache_entries": len(geo_service._constraints._cache),
+        "version":          "4.0.0",
     }
