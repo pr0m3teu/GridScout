@@ -10,7 +10,7 @@ from .constraints import ConstraintData, ProtectedArea
 
 @dataclass
 class Violation:
-    category:    str   # "protected_area" | "railway" | "highway" | "waterway"
+    category:    str  
     name:        str
     penalty:     float
     detail:      dict  = field(default_factory=dict)
@@ -105,20 +105,26 @@ class ScoringEngine:
                 continue
 
             unit_penalty = {
-                "railway":  p.railway_crossing,
-                "highway":  p.highway_crossing,
-                "waterway": p.waterway_crossing,
+                "cale ferata":  p.railway_crossing,
+                "autostrada":  p.highway_crossing,
+                "cale de apa": p.waterway_crossing,
             }.get(line.infra_type, 0.0)
 
             if unit_penalty == 0.0:
                 continue
-
-            violations.append(Violation(
-                category=line.infra_type,
-                name=f"{line.infra_type.title()} crossing",
-                penalty=unit_penalty,
-                detail={"osm_id": line.osm_id},
-            ))
+            
+            for violation in violations:
+                if violation.category == line.infra_type:
+                    break
+            
+            else:
+                violations.append(Violation(
+                    category=line.infra_type,
+                    name=f"{line.infra_type.title()}",
+                    penalty=unit_penalty,
+                    detail={"osm_id": line.osm_id},
+                ))
+                
             raw_infra += unit_penalty
 
         raw_infra = min(raw_infra, p.infrastructure_cap)

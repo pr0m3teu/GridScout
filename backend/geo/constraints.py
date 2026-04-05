@@ -1,13 +1,3 @@
-"""
-ConstraintProvider — fetches geospatial constraint data from the Overpass API
-and caches results in memory (per bounding-box key, with a configurable TTL).
-
-To swap the data source (e.g. to a PostGIS database, a national GIS service,
-or a local GeoJSON file), replace `_fetch_protected_areas` and
-`_fetch_infrastructure` with your new provider — the rest of the pipeline
-(scoring, caching, geometry) stays unchanged.
-"""
-
 import asyncio
 import time
 from dataclasses import dataclass, field
@@ -21,7 +11,6 @@ from .config import OverpassConfig
 from .geometry import linestring_from_nodes, polygon_from_nodes
 
 
-# ── Domain types ──────────────────────────────────────────────────────────────
 
 @dataclass
 class ProtectedArea:
@@ -207,11 +196,11 @@ class ConstraintProvider:
                 continue
 
             if "railway" in tags:
-                itype = "railway"
+                itype = "cale ferata"
             elif "highway" in tags:
-                itype = "highway"
+                itype = "autostrada"
             elif "waterway" in tags:
-                itype = "waterway"
+                itype = "cale de apa"
             else:
                 continue
 

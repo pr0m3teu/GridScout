@@ -360,7 +360,7 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden" style={{ height: 'calc(100vh - 57px)' }}>
 
         {/* Left panel — 60% */}
-        <section className="flex flex-col gap-4 p-5" style={{ width: '60%' }}>
+        <section className="flex flex-col gap-4 p-5 w-[60%] h-fit sticky top-0" >
           <Card className="p-5">
             <SectionHeader
               icon={MapPin}
@@ -390,7 +390,7 @@ export default function App() {
             </button>
           </Card>
 
-          <Card className="flex-1 overflow-hidden p-2">
+          <Card className="flex-1 overflow-hidden p-4">
             <GridMap
               userLat={lat ? parseFloat(lat) : null}
               userLon={lon ? parseFloat(lon) : null}
@@ -409,7 +409,7 @@ export default function App() {
 
           {/* Congestion Risk Score */}
           <Card className="p-6">
-            <SectionHeader icon={BarChart3} title="Scor Risc Congestionare" />
+            <SectionHeader icon={BarChart3} title="Scor Risc De Congestionare" />
             {result ? (
               <>
                 <RiskGauge score={result.risk_score} />
