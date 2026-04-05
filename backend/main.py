@@ -368,16 +368,24 @@ DOAR cele 3 paragrafe, separate de un rând liber."""
 
     if openai_client:
         try:
-            resp = openai_client.chat.completions.create(
+            resp = openai_client.responses.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=600,
                 temperature=0.4,
-            )
-            return resp.choices[0].message.content.strip()
+                input= [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": prompt
+                    }
+                ]
+            }])
+            
+            return resp.output_text
         except Exception as e:
             print(f"[WARN] OpenAI error: {e}")
 
+    print("FELL BACK")
     return _fallback_insight(station, dist_km, breakdown, crossed_areas)
 
 
