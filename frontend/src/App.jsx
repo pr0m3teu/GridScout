@@ -11,20 +11,20 @@ import GridMap from './components/MapComponent';
 
 const API_URL = 'http://localhost:8000';
 
-// ── Risk score: higher = worse (congestion)
+// ── Risk score: higher = worse (congestion) ───────────────────────────────
 function riskProfile(score) {
-  if (score >= 80) return { color: '#B91C1C', bg: '#FEF2F2', border: '#FECACA', label: 'High Risk' };
-  if (score >= 40) return { color: '#92400E', bg: '#FFFBEB', border: '#FDE68A', label: 'Moderate Risk' };
-  return             { color: '#14532D', bg: '#F0FDF4', border: '#BBF7D0', label: 'Low Risk' };
+  if (score >= 80) return { color: '#B91C1C', bg: '#FEF2F2', border: '#FECACA', label: 'Risc Ridicat' };
+  if (score >= 40) return { color: '#92400E', bg: '#FFFBEB', border: '#FDE68A', label: 'Risc Moderat' };
+  return             { color: '#14532D', bg: '#F0FDF4', border: '#BBF7D0', label: 'Risc Scăzut' };
 }
 
-// ── Route score: higher = better (viability)
+// ── Route score: higher = better (viability) ──────────────────────────────
 function routeProfile(score) {
   if (score === null || score === undefined) return null;
-  if (score >= 80) return { color: '#14532D', bg: '#F0FDF4', border: '#BBF7D0', label: 'Excellent Route' };
-  if (score >= 60) return { color: '#1D4ED8', bg: '#EBF5FF', border: '#DBEAFE', label: 'Viable Route' };
-  if (score >= 40) return { color: '#92400E', bg: '#FFFBEB', border: '#FDE68A', label: 'Constrained Route' };
-  return             { color: '#B91C1C', bg: '#FEF2F2', border: '#FECACA', label: 'High Constraint' };
+  if (score >= 80) return { color: '#14532D', bg: '#F0FDF4', border: '#BBF7D0', label: 'Traseu Excelent' };
+  if (score >= 60) return { color: '#1D4ED8', bg: '#EBF5FF', border: '#DBEAFE', label: 'Traseu Viabil' };
+  if (score >= 40) return { color: '#92400E', bg: '#FFFBEB', border: '#FDE68A', label: 'Traseu Constrâns' };
+  return             { color: '#B91C1C', bg: '#FEF2F2', border: '#FECACA', label: 'Constrângeri Ridicate' };
 }
 
 function formatEur(value) {
@@ -118,7 +118,7 @@ function SkeletonRow({ label }) {
   );
 }
 
-// Dynamic constraint alerts — driven entirely by API response data
+// ── Dynamic constraint alerts — driven entirely by API response data ────────
 function ConstraintAlerts({ violations, constraintSource }) {
   if (!violations || violations.length === 0) return null;
 
@@ -128,26 +128,26 @@ function ConstraintAlerts({ violations, constraintSource }) {
   return (
     <div className="flex flex-col gap-2">
       {protectedCrossings.map((v, i) => (
-        <Card key={i} className="p-4">
+        <Card key={`pa-${i}`} className="p-4">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 w-7 h-7 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0">
               <Shield size={14} className="text-risk-high" />
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-risk-high mb-1 truncate">
-                Protected Area: {v.name}
+                Zonă Protejată: {v.name}
               </p>
               <p className="text-xs text-ink-500 leading-relaxed">
                 {v.detail?.protection_type === 'national_park'
-                  ? 'National park designation. '
+                  ? 'Parc național. '
                   : v.detail?.protection_type === 'nature_reserve'
-                  ? 'Nature reserve. '
-                  : 'Protected area. '}
+                  ? 'Rezervație naturală. '
+                  : 'Zonă protejată. '}
                 {v.detail?.iucn_level && v.detail.iucn_level !== 'unknown'
-                  ? `IUCN Category ${v.detail.iucn_level}. `
+                  ? `Categoria IUCN ${v.detail.iucn_level}. `
                   : ''}
-                An Appropriate Assessment under Habitats Directive 92/43/EEC may be required.
-                Consult an environmental specialist before any technical submission.
+                Poate fi necesară o Evaluare Adecvată conform Directivei Habitate 92/43/CEE.
+                Consultați un specialist în mediu înainte de orice depunere tehnică.
               </p>
             </div>
           </div>
@@ -162,17 +162,17 @@ function ConstraintAlerts({ violations, constraintSource }) {
             </div>
             <div>
               <p className="text-sm font-semibold text-amber-800 mb-1">
-                Infrastructure Crossings
+                Traversări Infrastructură
               </p>
               <p className="text-xs text-ink-500 leading-relaxed">
-                The proposed route crosses{' '}
+                Traseul propus traversează{' '}
                 {infraCrossings.map((v, i) => (
                   <span key={i}>
                     {i > 0 ? ', ' : ''}
                     <span className="font-medium text-ink-700">{v.name.toLowerCase()}</span>
                   </span>
                 ))}.
-                {' '}These crossings require technical permits and may extend construction timelines.
+                {' '}Aceste traversări necesită avize tehnice și pot extinde termenele de construcție.
               </p>
             </div>
           </div>
@@ -182,14 +182,14 @@ function ConstraintAlerts({ violations, constraintSource }) {
       {constraintSource === 'fallback' && (
         <div className="flex items-center gap-2 text-xs text-ink-400 px-1">
           <Info size={12} />
-          Constraint data unavailable — live analysis could not be completed.
+          Date de constrângeri indisponibile — analiza live nu a putut fi finalizată.
         </div>
       )}
     </div>
   );
 }
 
-// Route viability score card
+// ── Route viability score card ─────────────────────────────────────────────
 function RouteViabilityCard({ routeScore, violations, constraintSource }) {
   const p = routeProfile(routeScore);
 
@@ -200,7 +200,7 @@ function RouteViabilityCard({ routeScore, violations, constraintSource }) {
     <Card className="p-6">
       <SectionHeader
         icon={Navigation}
-        title="Route Viability"
+        title="Viabilitate Traseu"
         action={
           constraintSource && constraintSource !== 'unavailable' && (
             <span className={`text-xs px-2 py-0.5 rounded-full border font-medium
@@ -209,7 +209,7 @@ function RouteViabilityCard({ routeScore, violations, constraintSource }) {
                 : constraintSource === 'cache'
                 ? 'text-brand-700 bg-brand-50 border-brand-100'
                 : 'text-ink-500 bg-gray-50 border-gray-200'}`}>
-              {constraintSource === 'overpass' ? 'Live · Overpass' : constraintSource === 'cache' ? 'Cached' : constraintSource}
+              {constraintSource === 'overpass' ? 'Live · Overpass' : constraintSource === 'cache' ? 'Din Cache' : constraintSource}
             </span>
           )
         }
@@ -233,19 +233,19 @@ function RouteViabilityCard({ routeScore, violations, constraintSource }) {
               {protectedCount > 0 && (
                 <div className="flex items-center gap-1.5 justify-end text-xs text-risk-high">
                   <Shield size={11} />
-                  {protectedCount} protected area{protectedCount > 1 ? 's' : ''}
+                  {protectedCount} zonă{protectedCount > 1 ? ' protejate' : ' protejată'}
                 </div>
               )}
               {infraCount > 0 && (
                 <div className="flex items-center gap-1.5 justify-end text-xs text-amber-700">
                   <AlertCircle size={11} />
-                  {infraCount} infrastructure crossing{infraCount > 1 ? 's' : ''}
+                  {infraCount} traversare{infraCount > 1 ? ' infrastructură' : ' infrastructură'}
                 </div>
               )}
               {protectedCount === 0 && infraCount === 0 && (
                 <div className="flex items-center gap-1.5 justify-end text-xs text-emerald-700">
                   <CheckCircle size={11} />
-                  No constraints detected
+                  Nicio constrângere detectată
                 </div>
               )}
             </div>
@@ -264,13 +264,14 @@ function RouteViabilityCard({ routeScore, violations, constraintSource }) {
       ) : (
         <div className="flex items-center gap-2 text-xs text-ink-400 py-4">
           <Info size={13} />
-          Route viability analysis unavailable — constraint data could not be retrieved.
+          Analiza viabilității traseului indisponibilă — datele de constrângeri nu au putut fi obținute.
         </div>
       )}
     </Card>
   );
 }
 
+// ── Root component ─────────────────────────────────────────────────────────
 export default function App() {
   const [lat,     setLat]     = useState('');
   const [lon,     setLon]     = useState('');
@@ -289,7 +290,7 @@ export default function App() {
     setResult(null);
 
     if (!lat || !lon || !mw) {
-      setError('Please fill in all fields before running the analysis.');
+      setError('Completați toate câmpurile înainte de a rula analiza.');
       return;
     }
 
@@ -298,7 +299,7 @@ export default function App() {
     const pMw  = parseFloat(mw);
 
     if (isNaN(pLat) || isNaN(pLon) || isNaN(pMw) || pMw <= 0) {
-      setError('Invalid input. Please verify coordinates and the requested capacity.');
+      setError('Date invalide. Verificați coordonatele și capacitatea solicitată.');
       return;
     }
 
@@ -311,11 +312,11 @@ export default function App() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Server error ${res.status}`);
+        throw new Error(err.detail || `Eroare server ${res.status}`);
       }
       setResult(await res.json());
     } catch (err) {
-      setError(`Connection failed: ${err.message}. Ensure the backend is running on port 8000.`);
+      setError(`Conexiune eșuată: ${err.message}. Asigurați-vă că backend-ul rulează pe portul 8000.`);
     } finally {
       setLoading(false);
     }
@@ -340,18 +341,18 @@ export default function App() {
           <div className="flex items-baseline gap-2">
             <span className="text-base font-bold text-ink-900 tracking-tight">GridScout</span>
             <span className="text-xs text-brand-600 font-medium bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">
-              Romania · ANRE
+              România · ANRE
             </span>
           </div>
         </div>
         <div className="flex items-center gap-5 text-xs text-ink-400">
           <span className="flex items-center gap-1.5">
             <Radio size={11} className="text-emerald-500" />
-            Live ANRE Data · Order 137/2021
+            Date ANRE Live · Ordin 137/2021
           </span>
           <span className="flex items-center gap-1.5">
             <Activity size={11} className="text-brand-500" />
-            Congestion Intelligence Platform
+            Platformă de Inteligență Congestionare
           </span>
         </div>
       </header>
@@ -363,13 +364,13 @@ export default function App() {
           <Card className="p-5">
             <SectionHeader
               icon={MapPin}
-              title="Site Parameters"
-              action={<span className="text-xs text-ink-400">Click map to set coordinates</span>}
+              title="Parametri Amplasament"
+              action={<span className="text-xs text-ink-400">Click pe hartă pentru coordonate</span>}
             />
             <div className="grid grid-cols-3 gap-3 mb-4">
-              <NumberInput label="Latitude (°N)"           id="lat" value={lat} onChange={setLat} placeholder="47.1585" />
-              <NumberInput label="Longitude (°E)"          id="lon" value={lon} onChange={setLon} placeholder="27.6014" />
-              <NumberInput label="Requested Capacity (MW)" id="mw"  value={mw}  onChange={setMw}  placeholder="15.0" step="0.1" />
+              <NumberInput label="Latitudine (°N)"          id="lat" value={lat} onChange={setLat} placeholder="47.1585" />
+              <NumberInput label="Longitudine (°E)"         id="lon" value={lon} onChange={setLon} placeholder="27.6014" />
+              <NumberInput label="Capacitate Solicitată (MW)" id="mw" value={mw}  onChange={setMw}  placeholder="15.0" step="0.1" />
             </div>
             {error && (
               <div className="mb-4 flex items-start gap-2 text-xs text-red-700
@@ -384,8 +385,8 @@ export default function App() {
                 text-white font-semibold text-sm rounded-lg px-6 py-2.5
                 transition-colors duration-150 active:scale-[0.99]">
               {loading
-                ? <><Loader2 size={15} className="animate-spin" />Running Analysis…</>
-                : <><Activity size={15} />Run Interconnection Analysis<ChevronRight size={14} /></>}
+                ? <><Loader2 size={15} className="animate-spin" />Se rulează analiza…</>
+                : <><Activity size={15} />Rulează Analiza de Racordare<ChevronRight size={14} /></>}
             </button>
           </Card>
 
@@ -397,6 +398,7 @@ export default function App() {
               stationLon={result?.station_lon ?? null}
               stationName={result?.closest_station ?? ''}
               envFlag={result?.env_flag ?? false}
+              violations={result?.route_violations ?? []}
               onMapClick={handleMapClick}
             />
           </Card>
@@ -407,15 +409,15 @@ export default function App() {
 
           {/* Congestion Risk Score */}
           <Card className="p-6">
-            <SectionHeader icon={BarChart3} title="Congestion Risk Score" />
+            <SectionHeader icon={BarChart3} title="Scor Risc Congestionare" />
             {result ? (
               <>
                 <RiskGauge score={result.risk_score} />
                 <div className="mt-5 pt-4 border-t border-border">
                   <div className="flex justify-between text-xs text-ink-500 mb-2">
-                    <span>Zone {result.zona_retea} — Network Utilization</span>
+                    <span>Zona {result.zona_retea} — Utilizare Rețea</span>
                     <span className="font-mono font-semibold" style={{ color: riskCfg?.color }}>
-                      {Math.round(zoneUsagePct)}% used
+                      {Math.round(zoneUsagePct)}% utilizat
                     </span>
                   </div>
                   <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -434,13 +436,13 @@ export default function App() {
                   <BarChart3 size={28} className="text-ink-300" />
                 </div>
                 <p className="text-ink-400 text-xs text-center leading-relaxed">
-                  Enter project parameters and run the analysis<br />to generate a risk score.
+                  Introduceți parametrii proiectului și rulați analiza<br />pentru a genera un scor de risc.
                 </p>
               </div>
             )}
           </Card>
 
-          {/* Route Viability Score — shown after analysis */}
+          {/* Route Viability Score */}
           {result && (
             <RouteViabilityCard
               routeScore={result.route_score}
@@ -449,7 +451,7 @@ export default function App() {
             />
           )}
 
-          {/* Dynamic constraint alerts — replaces hardcoded EnvironmentalAlert */}
+          {/* Dynamic constraint alerts */}
           {result && result.route_violations?.length > 0 && (
             <ConstraintAlerts
               violations={result.route_violations}
@@ -459,11 +461,11 @@ export default function App() {
 
           {/* Intelligence Report */}
           <Card className="p-5">
-            <SectionHeader icon={FileText} title="Intelligence Report" />
+            <SectionHeader icon={FileText} title="Raport de Expertiză" />
             {loading && (
               <div className="flex items-center gap-2 text-xs text-ink-400">
                 <Loader2 size={13} className="animate-spin text-brand-500" />
-                Generating report…
+                Se generează raportul…
               </div>
             )}
             {result && !loading && (
@@ -475,32 +477,32 @@ export default function App() {
             )}
             {!result && !loading && (
               <p className="text-xs text-ink-400 leading-relaxed">
-                The AI-generated assessment will appear here after the analysis runs.
-                It covers grid capacity, route constraints, and actionable recommendations.
+                Evaluarea generată de AI va apărea aici după rularea analizei.
+                Acoperă capacitatea rețelei, constrângerile de traseu și recomandări acționabile.
               </p>
             )}
           </Card>
 
           {/* Grid Connection Details */}
           <Card className="p-5">
-            <SectionHeader icon={Zap} title="Grid Connection Details" />
+            <SectionHeader icon={Zap} title="Detalii Racordare la Rețea" />
             {result ? (
               <>
-                <DataRow label="Substation"              value={result.closest_station}            highlight />
-                <DataRow label="County"                  value={result.judet_statie || '—'} />
-                <DataRow label="ANRE Network Zone"       value={`Zone ${result.zona_retea}`}        highlight />
-                <DataRow label="Distance to Substation"  value={`${result.distance_km} km`}         mono />
-                <DataRow label="Approved Capacity (ANRE)" value={`${result.mw_aprobat_statie} MW`} mono />
-                <DataRow label="Remaining Station Capacity" value={`${result.capacity_left} MW`}   mono highlight />
-                <DataRow label="Zone Total Capacity"     value={`${result.mw_zona_totala} MW`}      mono />
-                <DataRow label="Zone Remaining Capacity" value={`${result.mw_zona_ramasa} MW`}      mono highlight />
-                <DataRow label="Requested Capacity"      value={`${mw} MW`}                         mono />
-                <DataRow label="Congestion Risk Score"   value={`${result.risk_score} / 100`}       mono />
-                <DataRow label="Substation Coordinates"  value={`${result.station_lat}°N, ${result.station_lon}°E`} mono />
+                <DataRow label="Stație"                        value={result.closest_station}              highlight />
+                <DataRow label="Județ"                         value={result.judet_statie || '—'} />
+                <DataRow label="Zonă Rețea ANRE"               value={`Zona ${result.zona_retea}`}          highlight />
+                <DataRow label="Distanță până la Stație"       value={`${result.distance_km} km`}           mono />
+                <DataRow label="Capacitate Aprobată (ANRE)"    value={`${result.mw_aprobat_statie} MW`}     mono />
+                <DataRow label="Capacitate Rămasă Stație"      value={`${result.capacity_left} MW`}         mono highlight />
+                <DataRow label="Capacitate Totală Zonă"        value={`${result.mw_zona_totala} MW`}        mono />
+                <DataRow label="Capacitate Rămasă Zonă"        value={`${result.mw_zona_ramasa} MW`}        mono highlight />
+                <DataRow label="Capacitate Solicitată"         value={`${mw} MW`}                           mono />
+                <DataRow label="Scor Risc Congestionare"       value={`${result.risk_score} / 100`}         mono />
+                <DataRow label="Coordonate Stație"             value={`${result.station_lat}°N, ${result.station_lon}°E`} mono />
               </>
             ) : (
-              ['Substation', 'ANRE Network Zone', 'Distance', 'Approved Capacity',
-               'Remaining Capacity', 'Zone Capacity', 'Risk Score'].map(label => (
+              ['Stație', 'Zonă Rețea ANRE', 'Distanță', 'Capacitate Aprobată',
+               'Capacitate Rămasă', 'Capacitate Zonă', 'Scor Risc'].map(label => (
                 <SkeletonRow key={label} label={label} />
               ))
             )}
@@ -508,45 +510,45 @@ export default function App() {
 
           {/* Commercial Feasibility */}
           <Card className="p-5">
-            <SectionHeader icon={TrendingUp} title="Commercial Feasibility" />
+            <SectionHeader icon={TrendingUp} title="Fezabilitate Comercială" />
             {result ? (
               <>
-                <DataRow label="Grid Connection CAPEX" value={formatEur(result.capex_eur)}    mono highlight />
-                <DataRow label="Specific Cost"         value={`${formatEur(result.capex_per_mw)} / MW`} mono />
+                <DataRow label="CAPEX Racordare la Rețea"    value={formatEur(result.capex_eur)}          mono highlight />
+                <DataRow label="Cost Specific"               value={`${formatEur(result.capex_per_mw)} / MW`} mono />
                 <div className="flex items-center justify-between py-2.5 border-b border-border">
                   <span className="text-xs text-ink-500 flex items-center gap-1.5">
                     <Sun size={11} className="text-amber-500" />
-                    Solar Irradiance (2023)
+                    Iradiere Solară (2023)
                   </span>
                   <span className="text-xs font-semibold font-mono text-ink-900">
-                    {result.resource_efficiency.toLocaleString('en')} kWh/m²/yr
+                    {result.resource_efficiency.toLocaleString('ro')} kWh/m²/an
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2.5">
                   <span className="text-xs text-ink-500 flex items-center gap-1.5">
                     <Mountain size={11} className="text-ink-400" />
-                    Terrain Elevation
+                    Altitudine Teren
                   </span>
                   <span className="text-xs font-semibold font-mono text-ink-900">
                     {result.elevation_meters} m
                   </span>
                 </div>
                 <p className="text-xs text-ink-400 mt-3 pt-3 border-t border-border leading-relaxed">
-                  CAPEX estimate: distance × €90,000/km.
-                  Irradiance: Open-Meteo Archive API.
-                  Elevation: Open-Elevation API.
+                  Estimare CAPEX: distanță × €90.000/km.
+                  Iradiere: API Open-Meteo Archive.
+                  Altitudine: API Open-Elevation.
                 </p>
               </>
             ) : (
-              ['Grid Connection CAPEX', 'Specific Cost (€/MW)',
-               'Solar Irradiance (kWh/m²/yr)', 'Elevation (m)'].map(label => (
+              ['CAPEX Racordare la Rețea', 'Cost Specific (€/MW)',
+               'Iradiere Solară (kWh/m²/an)', 'Altitudine (m)'].map(label => (
                 <SkeletonRow key={label} label={label} />
               ))
             )}
           </Card>
 
           <p className="text-center text-xs text-ink-400 pb-2">
-            GridScout · ANRE Order 137/2021 · OpenStreetMap / Overpass · Open-Meteo · Open-Elevation
+            GridScout · ANRE Ordin 137/2021 · OpenStreetMap / Overpass · Open-Meteo · Open-Elevation
           </p>
         </section>
       </main>

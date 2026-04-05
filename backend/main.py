@@ -378,7 +378,7 @@ def generate_insight(
             f"submission. Procedure timelines can exceed 18 months."
         )
 
-    violations_str = _format_violations_for_prompt(violations)
+    violations_str  = _format_violations_for_prompt(violations)
     route_score_str = f"{route_score:.1f}/100" if route_score is not None else "unavailable"
 
     prompt = f"""You are an expert consultant in Romanian electrical grid interconnection.
@@ -410,11 +410,14 @@ Respond ONLY with the 3 paragraphs separated by a blank line. No other text."""
 
     if openai_client:
         try:
-            resp = openai_client.responses.create(
+            # Uses the standard Chat Completions API (compatible with openai>=1.30.0)
+            resp = openai_client.chat.completions.create(
                 model="gpt-4o-mini",
-                input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=600,
+                temperature=0.4,
             )
-            return resp.output_text
+            return resp.choices[0].message.content.strip()
         except Exception as e:
             print(f"[WARN] OpenAI error: {e}")
 
@@ -487,12 +490,12 @@ async def evaluate_risk(req: EvaluateRequest):
     capex_eur, capex_per_mw = estimate_capex(dist_km, req.requested_mw)
 
     # Run geo analysis and external data fetches concurrently
-    geo_task      = geo_service.evaluate_route(
+    geo_task       = geo_service.evaluate_route(
         site_lat=req.lat, site_lon=req.lon,
         station_lat=station_coords["lat"], station_lon=station_coords["lon"],
         dist_km=dist_km,
     )
-    solar_task    = fetch_solar_irradiance(req.lat, req.lon)
+    solar_task     = fetch_solar_irradiance(req.lat, req.lon)
     elevation_task = fetch_elevation(req.lat, req.lon)
 
     results = await asyncio.gather(geo_task, solar_task, elevation_task, return_exceptions=True)
@@ -507,15 +510,24 @@ async def evaluate_risk(req: EvaluateRequest):
         crossed_areas     = []
         route_violations  = []
         constraint_source = "unavailable"
+        violations_for_insight: list[Violation] = []
     else:
         env_flag          = geo_result.env_flag
         route_score       = geo_result.total
         crossed_areas     = geo_result.crossed_areas
-        route_violations  = [
-            {"category": v.category, "name": v.name, "penalty": v.penalty, "detail": v.detail}
+        # Serialize violation objects — detail already contains centroid_lat/lon
+        # for protected areas so the frontend can render dynamic map overlays.
+        route_violations = [
+            {
+                "category": v.category,
+                "name":     v.name,
+                "penalty":  v.penalty,
+                "detail":   v.detail,
+            }
             for v in geo_result.violations
         ]
-        constraint_source = geo_result.constraint_source
+        constraint_source       = geo_result.constraint_source
+        violations_for_insight  = geo_result.violations
 
     # External data fallbacks
     if isinstance(solar_irradiance, Exception):
@@ -532,11 +544,11 @@ async def evaluate_risk(req: EvaluateRequest):
         env_flag=env_flag,
         crossed_areas=crossed_areas,
         route_score=route_score,
-        violations=[] if isinstance(geo_result, Exception) else geo_result.violations,
+        violations=violations_for_insight,
     )
 
     return {
-        # Grid capacity fields (unchanged)
+        # ── Grid capacity ────────────────────────────────────────────────
         "closest_station":    station_name,
         "distance_km":        dist_km,
         "capacity_left":      cap["cap_ramasa_statie"],
@@ -554,23 +566,29 @@ async def evaluate_risk(req: EvaluateRequest):
         "resource_efficiency": solar_irradiance,
         "elevation_meters":   elevation,
 
-        # Geo analysis fields (new)
-        "env_flag":           env_flag,           # backward compat: bool
-        "route_score":        route_score,         # 0–100, higher = more viable
-        "crossed_areas":      crossed_areas,        # list of protected area names
-        "route_violations":   route_violations,     # detailed constraint list
-        "constraint_source":  constraint_source,    # "overpass" | "cache" | "fallback" | "unavailable"
+        # ── Geo analysis ─────────────────────────────────────────────────
+        # env_flag: backward-compat boolean — True if any protected area crossed
+        "env_flag":           env_flag,
+        # route_score: 0–100, higher = more viable route
+        "route_score":        route_score,
+        # crossed_areas: human-readable list of protected area names
+        "crossed_areas":      crossed_areas,
+        # route_violations: full violation list; protected area entries include
+        # centroid_lat / centroid_lon / display_radius_m for map rendering
+        "route_violations":   route_violations,
+        # constraint_source: "overpass" | "cache" | "fallback" | "unavailable"
+        "constraint_source":  constraint_source,
     }
 
 
 @app.get("/health")
 async def health():
     return {
-        "status":           "ok",
-        "excel_loaded":     not FORMULAR_DF.empty,
-        "zones_loaded":     len(ZONE_CAPACITY),
-        "stations_known":   len(STATION_STATS),
-        "ai_enabled":       openai_client is not None,
+        "status":            "ok",
+        "excel_loaded":      not FORMULAR_DF.empty,
+        "zones_loaded":      len(ZONE_CAPACITY),
+        "stations_known":    len(STATION_STATS),
+        "ai_enabled":        openai_client is not None,
         "geo_cache_entries": len(geo_service._constraints._cache),
-        "version":          "4.0.0",
+        "version":           "4.0.0",
     }

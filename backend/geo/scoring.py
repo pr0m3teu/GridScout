@@ -15,8 +15,9 @@ Each component = raw_penalty × its weight.
 Raw penalties are capped individually before weighting.
 """
 
+import math
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from shapely.geometry import LineString, Polygon
 
@@ -51,6 +52,28 @@ class RouteScore:
     crossed_areas:          List[str]      # names of crossed protected areas
     env_flag:               bool           # True if any protected area crossed
     constraint_source:      str            # "overpass" | "cache" | "fallback"
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _area_radius_m(polygon: Polygon) -> float:
+    """
+    Estimate a representative display radius (metres) for a protected area polygon.
+    Uses the equivalent-circle radius of the bounding-box diagonal, clamped to
+    a sensible visual range so tiny reserves and giant parks both render legibly.
+
+    The polygon is in WGS84 (degrees), so we convert degree-area to km² via the
+    standard approximation: 1° latitude ≈ 111 km, 1° longitude ≈ 111·cos(lat) km.
+    """
+    minx, miny, maxx, maxy = polygon.bounds
+    mid_lat_rad = math.radians((miny + maxy) / 2.0)
+    lat_scale   = 111_000.0                          # m / degree latitude
+    lon_scale   = 111_000.0 * math.cos(mid_lat_rad)  # m / degree longitude
+
+    area_m2 = polygon.area * lat_scale * lon_scale
+    radius  = math.sqrt(area_m2 / math.pi)
+    # Clamp: min 500 m (tiny reserve), max 40 km (largest national park)
+    return max(500.0, min(40_000.0, radius))
 
 
 # ── Engine ────────────────────────────────────────────────────────────────────
@@ -94,6 +117,10 @@ class ScoringEngine:
             if area.protection_type == "national_park":
                 penalty *= p.national_park_multiplier
 
+            # Centroid for frontend map rendering (WGS84: x=lon, y=lat)
+            centroid  = area.geometry.centroid
+            radius_m  = _area_radius_m(area.geometry)
+
             violations.append(Violation(
                 category="protected_area",
                 name=area.name,
@@ -101,6 +128,12 @@ class ScoringEngine:
                 detail={
                     "protection_type": area.protection_type,
                     "iucn_level":      area.iucn_level or "unknown",
+                    # Geographic centroid — used by the frontend to render
+                    # a dynamic circle overlay on the map.
+                    "centroid_lat":    round(centroid.y, 6),
+                    "centroid_lon":    round(centroid.x, 6),
+                    # Estimated display radius so the circle scales with the area.
+                    "display_radius_m": round(radius_m, 0),
                 },
             ))
             crossed_areas.append(area.name)
@@ -144,8 +177,8 @@ class ScoringEngine:
         raw_dist  = min(excess_km * p.distance_per_km, p.distance_cap)
 
         # ── Weighted components ────────────────────────────────────────────
-        env_component  = round(raw_env   * w.environment,    2)
-        dist_component = round(raw_dist  * w.distance,       2)
+        env_component   = round(raw_env   * w.environment,    2)
+        dist_component  = round(raw_dist  * w.distance,       2)
         infra_component = round(raw_infra * w.infrastructure, 2)
 
         total_penalty = env_component + dist_component + infra_component
