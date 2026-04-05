@@ -408,14 +408,21 @@ Paragraful 3: Recomandare directă, acționabilă (cerere de acces la rețea, st
 Răspundeți DOAR cu cele 3 paragrafe separate de un rând liber. Fără niciun alt text."""
     if openai_client:
         try:
-            # Uses the standard Chat Completions API (compatible with openai>=1.30.0)
-            resp = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=600,
-                temperature=0.4,
+            resp = openai_client.responses.create(
+                model="gpt-5.4-mini",
+
+                input= [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": prompt
+                        }
+                    ]
+                }]
             )
-            return resp.choices[0].message.content.strip()
+        
+            return resp.output_text
         except Exception as e:
             print(f"[WARN] OpenAI error: {e}")
 

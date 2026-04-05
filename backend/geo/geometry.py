@@ -21,20 +21,11 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def build_path(start: Coord, end: Coord) -> LineString:
-    """
-    Construct a WGS84 LineString between two (lat, lon) points.
-    Shapely uses (x=lon, y=lat) convention.
-    """
     return LineString([(start[1], start[0]), (end[1], end[0])])
 
 
 def buffer_path_metric(line: LineString, metres: float, utm_epsg: int = 32635) -> Polygon:
-    """
-    Buffer a WGS84 LineString by `metres`, using a proper UTM projection so
-    the buffer distance is accurate regardless of longitude.
 
-    Returns a WGS84 Polygon (the buffered corridor).
-    """
     to_utm   = Transformer.from_crs("EPSG:4326", f"EPSG:{utm_epsg}", always_xy=True)
     from_utm = Transformer.from_crs(f"EPSG:{utm_epsg}", "EPSG:4326",  always_xy=True)
 
@@ -59,12 +50,6 @@ def bbox_from_coords(coords: List[Coord], pad_deg: float = 0.05) -> Tuple[float,
 
 
 def polygon_from_nodes(nodes: List[dict]) -> Optional[Polygon]:
-    """
-    Build a Shapely Polygon from a list of Overpass geometry nodes:
-    [{"lat": ..., "lon": ...}, ...]
-
-    Returns None if fewer than 3 distinct nodes, or if geometry is unrecoverable.
-    """
     if len(nodes) < 3:
         return None
     coords = [(n["lon"], n["lat"]) for n in nodes]
@@ -75,7 +60,6 @@ def polygon_from_nodes(nodes: List[dict]) -> Optional[Polygon]:
         poly = Polygon(coords)
         if not poly.is_valid:
             poly = make_valid(poly)
-        # make_valid can return a GeometryCollection; keep only Polygon parts
         if poly.geom_type == "GeometryCollection":
             polys = [g for g in poly.geoms if g.geom_type in ("Polygon", "MultiPolygon")]
             if not polys:
