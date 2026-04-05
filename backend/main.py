@@ -12,10 +12,12 @@ from dotenv import load_dotenv
 
 from geo import DEFAULT_CONFIG, GeoAnalysisService
 from geo.scoring import Violation
+from congestion import CongestionScoringService, DEFAULT_CONGESTION_CONFIG
+from congestion.scoring import CongestionBreakdown
 
 load_dotenv()
 
-app = FastAPI(title="GridScout API", version="4.0.0")
+app = FastAPI(title="GridScout API", version="5.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,10 +26,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_openai_key   = os.getenv("OPENAI_KEY", "")
+_openai_key  = os.getenv("OPENAI_KEY", "")
 openai_client = OpenAI(api_key=_openai_key) if _openai_key else None
 
-geo_service = GeoAnalysisService(DEFAULT_CONFIG)
+geo_service        = GeoAnalysisService(DEFAULT_CONFIG)
+congestion_service = CongestionScoringService(DEFAULT_CONGESTION_CONFIG)
 
 LINE_COST_EUR_PER_KM = 90_000.0
 
@@ -129,42 +132,6 @@ STATION_COORDS: dict[str, dict] = {
     "MINTIA":               {"lat": 45.8612, "lon": 22.9012, "judet": "HUNEDOARA"},
 }
 
-COUNTY_CENTROIDS: dict[str, dict] = {
-    "IAȘI":     {"lat": 47.1585, "lon": 27.6014},
-    "VASLUI":   {"lat": 46.6401, "lon": 27.7298},
-    "BACĂU":    {"lat": 46.5670, "lon": 26.9146},
-    "NEAMȚ":    {"lat": 46.9767, "lon": 26.3814},
-    "SUCEAVA":  {"lat": 47.6333, "lon": 26.2500},
-    "BOTOȘANI": {"lat": 47.7500, "lon": 26.6667},
-    "VRANCEA":  {"lat": 45.6896, "lon": 27.0651},
-    "GALAȚI":   {"lat": 45.4353, "lon": 28.0074},
-    "BRĂILA":   {"lat": 45.2692, "lon": 27.9574},
-    "CONSTANȚA":{"lat": 44.1598, "lon": 28.6348},
-    "IALOMIȚA": {"lat": 44.5633, "lon": 27.3697},
-    "CĂLĂRAȘI": {"lat": 44.2011, "lon": 27.3318},
-    "BUCUREȘTI":{"lat": 44.4268, "lon": 26.1025},
-    "ILFOV":    {"lat": 44.5000, "lon": 26.2000},
-    "GIURGIU":  {"lat": 43.9037, "lon": 25.9699},
-    "TELEORMAN":{"lat": 44.0000, "lon": 25.0000},
-    "ARGEȘ":    {"lat": 44.8565, "lon": 24.8700},
-    "BUZĂU":    {"lat": 45.1500, "lon": 26.8200},
-    "DÂMBOVIȚA":{"lat": 44.9300, "lon": 25.4577},
-    "PRAHOVA":  {"lat": 44.9500, "lon": 26.0200},
-    "VÂLCEA":   {"lat": 45.1019, "lon": 24.3698},
-    "DOLJ":     {"lat": 44.3170, "lon": 23.7960},
-    "GORJ":     {"lat": 44.9500, "lon": 23.3500},
-    "OLT":      {"lat": 44.2700, "lon": 24.4200},
-    "TIMIȘ":    {"lat": 45.7489, "lon": 21.2087},
-    "ARAD":     {"lat": 46.1866, "lon": 21.3123},
-    "HUNEDOARA":{"lat": 45.7500, "lon": 22.9000},
-    "ALBA":     {"lat": 46.0700, "lon": 23.5700},
-    "BRAȘOV":   {"lat": 45.6427, "lon": 25.5887},
-    "SIBIU":    {"lat": 45.7983, "lon": 24.1256},
-    "BIHOR":    {"lat": 47.0469, "lon": 22.0000},
-    "CLUJ":     {"lat": 46.7712, "lon": 23.6236},
-    "MUREȘ":    {"lat": 46.5500, "lon": 24.6000},
-}
-
 BASE_DIR        = os.path.dirname(__file__)
 FORMULAR_PATH   = os.path.join(BASE_DIR, "Formular_pentru_schimbul_de_date_10_decembrie2024_2024_12_18_18-33-54.xlsx")
 CAPACITATE_PATH = os.path.join(BASE_DIR, "Capacitate_de_racordare_conform_Ordin_ANRE_nr__137_2021_2026_03_10_15-30-43.xlsx")
@@ -244,10 +211,10 @@ STATION_STATS = build_station_stats(FORMULAR_DF)
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0
-    φ1, φ2 = math.radians(lat1), math.radians(lat2)
-    dφ = math.radians(lat2 - lat1)
-    dλ = math.radians(lon2 - lon1)
-    a = math.sin(dφ / 2) ** 2 + math.cos(φ1) * math.cos(φ2) * math.sin(dλ / 2) ** 2
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
@@ -264,43 +231,30 @@ def find_closest_station(lat: float, lon: float) -> tuple[str, float, dict]:
     return best_name, round(best_dist, 2), best_coords
 
 
-def get_capacity_data(station: str, station_coords: dict, requested_mw: float) -> dict:
+def resolve_raw_inputs(station: str, station_coords: dict) -> dict:
+    """
+    Resolve administrative identifiers and raw ANRE numbers for a station.
+    Returns only supply-side data — no derived capacity calculations.
+    The CongestionScoringService handles all derivations.
+    """
     raw_judet = station_coords.get("judet", "")
     judet     = normalize_county(raw_judet) if raw_judet else ""
     zona      = COUNTY_TO_ZONE.get(judet, "N/A")
 
-    stats        = STATION_STATS.get(station, {})
-    mw_aprobat   = stats.get("mw_aprobat", 0.0)
-    cap_standard = max(mw_aprobat * 2.5, requested_mw * 3, 50.0)
-    cap_remaining = max(0.0, cap_standard - mw_aprobat)
+    stats      = STATION_STATS.get(station, {})
+    mw_aprobat = stats.get("mw_aprobat", 0.0)
 
     zone_data      = ZONE_CAPACITY.get(zona, {})
-    mw_zona_totala = zone_data.get("mw_zona_totala",  500.0)
-    mw_zona_ramasa = zone_data.get("mw_zona_ramasa",  200.0)
+    mw_zona_totala = zone_data.get("mw_zona_totala", 500.0)
+    mw_zona_ramasa = zone_data.get("mw_zona_ramasa", 200.0)
 
     return {
-        "judet":             judet or raw_judet,
-        "zona":              zona,
-        "mw_aprobat_statie": round(mw_aprobat, 1),
-        "cap_standard":      round(cap_standard, 1),
-        "cap_ramasa_statie": round(cap_remaining, 1),
-        "mw_zona_totala":    round(mw_zona_totala, 1),
-        "mw_zona_ramasa":    round(mw_zona_ramasa, 1),
+        "judet":          judet or raw_judet,
+        "zona":           zona,
+        "mw_aprobat":     round(mw_aprobat, 1),
+        "mw_zona_totala": round(mw_zona_totala, 1),
+        "mw_zona_ramasa": round(mw_zona_ramasa, 1),
     }
-
-
-def compute_risk_score(requested_mw: float, cap: dict) -> float:
-    cap_s  = cap["cap_standard"]
-    cap_r  = cap["cap_ramasa_statie"]
-    zona_r = cap["mw_zona_ramasa"]
-
-    if requested_mw >= cap_r:
-        station_risk = 100.0
-    else:
-        station_risk = min(99.9, (requested_mw / cap_s) * 100 * (1 + (requested_mw / max(cap_r, 0.01)) * 0.5))
-
-    zone_risk = min(100.0, (requested_mw / max(zona_r, 1)) * 60.0)
-    return round(min(100.0, max(0.0, 0.7 * station_risk + 0.3 * zone_risk)), 1)
 
 
 def estimate_capex(dist_km: float, requested_mw: float) -> tuple[float, float]:
@@ -341,12 +295,12 @@ async def fetch_elevation(lat: float, lon: float) -> int:
 
 def _format_violations_for_prompt(violations: list[Violation]) -> str:
     if not violations:
-        return "None detected."
+        return "Nicio constrângere detectată."
     lines = []
     for v in violations:
         if v.category == "protected_area":
-            ptype = v.detail.get("protection_type", "protected area")
-            iucn  = v.detail.get("iucn_level", "")
+            ptype    = v.detail.get("protection_type", "zonă protejată")
+            iucn     = v.detail.get("iucn_level", "")
             iucn_str = f" (IUCN {iucn})" if iucn and iucn != "unknown" else ""
             lines.append(f"  - {v.name}{iucn_str} [{ptype}]")
         else:
@@ -355,124 +309,124 @@ def _format_violations_for_prompt(violations: list[Violation]) -> str:
 
 
 def generate_insight(
-    station:        str,
-    dist_km:        float,
-    cap:            dict,
-    risk:           float,
-    mw:             float,
-    env_flag:       bool,
-    crossed_areas:  list[str],
-    route_score:    float | None,
-    violations:     list[Violation],
+    station:       str,
+    dist_km:       float,
+    breakdown:     CongestionBreakdown,
+    env_flag:      bool,
+    crossed_areas: list[str],
+    violations:    list[Violation],
 ) -> str:
     env_block = ""
     if env_flag and crossed_areas:
         area_list = ", ".join(crossed_areas)
         env_block = (
-            f"\n\nCRITICAL — PROTECTED AREAS: The connection route crosses the following "
-            f"protected or restricted zones detected via OpenStreetMap / Natura 2000 data: "
-            f"{area_list}. An Appropriate Assessment (AA) under Habitats Directive 92/43/EEC "
-            f"may be required. Construction may be subject to severe conditions or outright "
-            f"prohibition. Consult a licensed environmental specialist before any technical "
-            f"submission. Procedure timelines can exceed 18 months."
+            f"\n\nCRITIC — ZONE PROTEJATE: Traseul traversează: {area_list}. "
+            "Poate fi necesară o Evaluare Adecvată (92/43/CEE). "
+            "Consultați un specialist de mediu autorizat înainte de orice depunere."
         )
 
-    violations_str  = _format_violations_for_prompt(violations)
-    route_score_str = f"{route_score:.1f}/100" if route_score is not None else "unavailable"
+    violations_str = _format_violations_for_prompt(violations)
+    cap            = breakdown.capacity
+    loc            = breakdown.location
+    route_str      = (
+        f"{breakdown.route_score_input:.1f}/100"
+        if breakdown.route_score_input is not None
+        else "indisponibil"
+    )
 
-    prompt = f"""Actioneaza ca un consultant expert în interconectarea la rețeaua electrică din România.
+    comp_lines = "\n".join([
+        f"  - {breakdown.station_saturation.label}: {breakdown.station_saturation.raw:.0%} (contribuție {breakdown.station_saturation.weighted*100:.1f}%)",
+        f"  - {breakdown.zone_saturation.label}: {breakdown.zone_saturation.raw:.0%} (contribuție {breakdown.zone_saturation.weighted*100:.1f}%)",
+        f"  - {breakdown.location_pressure.label}: {breakdown.location_pressure.raw:.0%} (contribuție {breakdown.location_pressure.weighted*100:.1f}%)",
+        f"  - {breakdown.distance_penalty.label}: {breakdown.distance_penalty.raw:.0%} (contribuție {breakdown.distance_penalty.weighted*100:.1f}%)",
+        f"  - {breakdown.route_constraint.label}: {breakdown.route_constraint.raw:.0%} (contribuție {breakdown.route_constraint.weighted*100:.1f}%)",
+    ])
+
+    prompt = f"""Acționați ca un consultant expert în interconectarea la rețeaua electrică din România.
 Generați o evaluare profesională în exact 3 paragrafe, în limba română, fără titluri, liste sau marcatori.
-Ton: expert B2B, precis, orientat spre acțiune. Adresați-vă direct investitorului ("proiectul dumneavoastră", "amplasamentul dumneavoastră").
-Bazați-vă analiza strict pe datele de mai jos.
+Ton: expert B2B, precis, orientat spre acțiune. Adresați-vă direct investitorului.
 
-DATE DE ANALIZĂ:
-- Stația de interconectare: {station}
-- Județ / Zona de rețea ANRE: {cap.get('judet')} / Zona {cap.get('zona')}
-- Distanța de la amplasament la stație: {dist_km} km
-- Capacitatea solicitată: {mw} MW
-- Capacitatea aprobată în stație (date ANRE): {cap.get('mw_aprobat_statie')} MW
-- Capacitatea rămasă în stație: {cap.get('cap_ramasa_statie')} MW
-- Capacitatea totală a zonei — Zona {cap.get('zona')} (Ordinul ANRE 137/2021): {cap.get('mw_zona_totala')} MW
-- Capacitatea rămasă a zonei: {cap.get('mw_zona_ramasa')} MW
-- Scorul de risc de congestie: {risk}% (mai mare = mai rău)
-- Scorul de viabilitate a traseului: {route_score_str} (mai mare = mai bine)
-- Constrângeri de traseu detectate:
-{violations_str}
+DATE:
+- Stație: {station} | Județ/Zonă: {cap.judet} / Zona {cap.zona}
+- Distanță: {dist_km} km | Capacitate solicitată: {breakdown.requested_mw} MW
+- Capacitate aprobată stație: {cap.mw_aprobat_statie} MW | Rămasă: {cap.mw_remaining} MW
+- Capacitate totală zonă: {cap.mw_zona_totala} MW | Rămasă zonă: {cap.mw_zona_ramasa} MW
+- Scor risc congestionare: {breakdown.total}% — {breakdown.risk_label}
+- Componente risc:
+{comp_lines}
+- Locație: {loc.note}
+- Viabilitate traseu geo: {route_str}
+- Constrângeri: {violations_str}
 {env_block}
 
 STRUCTURĂ:
-Paragraful 1: Starea stației și a zonei de rețea în raport cu distanța față de amplasament.
-Paragraful 2: Analizați riscul de congestie de {risk}% și viabilitatea traseului de {route_score_str}, explicând implicațiile pentru cererea de {mw} MW.{' Abordați cu prioritate traversările zonelor protejate.' if env_flag else ''}
-Paragraful 3: Recomandare directă, acționabilă (cerere de acces la rețea, studiu de soluție, riscuri procedurale sau amplasament alternativ).
+P1: Starea stației și a zonei de rețea față de amplasament.
+P2: Analizați scorul {breakdown.total}% ({breakdown.risk_label}) cu detaliere pe cele mai importante componente.{' Prioritizați zonele protejate.' if env_flag else ''}
+P3: Recomandare directă și acționabilă.
 
-Răspundeți DOAR cu cele 3 paragrafe separate de un rând liber. Fără niciun alt text."""
+DOAR cele 3 paragrafe, separate de un rând liber."""
+
     if openai_client:
         try:
-            resp = openai_client.responses.create(
-                model="gpt-5.4-mini",
-
-                input= [{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": prompt
-                        }
-                    ]
-                }]
+            resp = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=600,
+                temperature=0.4,
             )
-        
-            return resp.output_text
+            return resp.choices[0].message.content.strip()
         except Exception as e:
             print(f"[WARN] OpenAI error: {e}")
 
-    return _fallback_insight(station, dist_km, cap, risk, mw, crossed_areas, route_score)
+    return _fallback_insight(station, dist_km, breakdown, crossed_areas)
 
 
 def _fallback_insight(
     station:       str,
     dist_km:       float,
-    cap:           dict,
-    risk:          float,
-    mw:            float,
+    breakdown:     CongestionBreakdown,
     crossed_areas: list[str],
-    route_score:   float | None,
 ) -> str:
-    risk_level  = "High" if risk >= 80 else ("Moderate" if risk >= 40 else "Low")
-    zona        = cap.get("zona", "N/A")
-    cap_r       = cap.get("cap_ramasa_statie", 0)
-    zona_r      = cap.get("mw_zona_ramasa", 0)
-    route_str   = f"{route_score:.1f}/100" if route_score is not None else "unavailable"
+    cap      = breakdown.capacity
+    risk     = breakdown.total
+    risk_lvl = breakdown.risk_label
+    zona     = cap.zona
+    route_str = (
+        f"{breakdown.route_score_input:.1f}/100"
+        if breakdown.route_score_input is not None
+        else "indisponibil"
+    )
 
     p1 = (
-        f"The {station} substation (ANRE Zone {zona}) has an estimated residual capacity "
-        f"of {cap_r:.1f} MW, located {dist_km:.1f} km from your proposed {mw:.1f} MW project site."
+        f"Stația {station} (Zona ANRE {zona}) are o capacitate reziduală estimată de "
+        f"{cap.mw_remaining:.1f} MW, la {dist_km:.1f} km de amplasamentul propus de "
+        f"{breakdown.requested_mw:.1f} MW."
     )
     p2 = (
-        f"The congestion risk score of {risk:.1f}% ({risk_level} Risk) reflects cumulative pressure "
-        f"at both the substation and zone levels; the remaining zone capacity in Zone {zona} "
-        f"is {zona_r:.1f} MW per ANRE Order 137/2021. "
-        f"The route viability score is {route_str}."
+        f"Scorul de risc este {risk:.1f}% ({risk_lvl}), determinat de: saturare stație "
+        f"{breakdown.station_saturation.raw:.0%}, saturare zonă "
+        f"{breakdown.zone_saturation.raw:.0%}, presiune geografică "
+        f"{breakdown.location_pressure.raw:.0%}, penalizare distanță "
+        f"{breakdown.distance_penalty.raw:.0%} și constrângeri traseu "
+        f"{breakdown.route_constraint.raw:.0%} (viabilitate geo: {route_str})."
     )
 
     if crossed_areas:
         area_list = ", ".join(crossed_areas)
         p3 = (
-            f"CRITICAL: The proposed connection route crosses protected area(s): {area_list}. "
-            "Before any technical steps, engage a licensed environmental consultant. "
-            "The Appropriate Assessment procedure may take 12–18 months and could block "
-            "the project. Immediately evaluate alternative routing or an alternative site."
+            f"CRITIC: Traseul traversează zone protejate: {area_list}. "
+            "Contactați urgent un consultant de mediu. "
+            "Procedura de Evaluare Adecvată poate dura 12–18 luni."
         )
-    elif risk >= 40:
+    elif risk >= 70:
         p3 = (
-            "Grid connection will require a detailed solution study and DSO negotiations; "
-            "expect 6–12 months to obtain the grid access certificate, potentially with "
-            "network reinforcement works."
+            "Racordarea necesită studiu de soluție și negocieri cu OD; "
+            "estimați 6–12 luni pentru avizul de acces, posibil cu lucrări de întărire."
         )
     else:
         p3 = (
-            "Grid conditions are favourable. Initiate the standard ANRE grid access request "
-            "immediately; estimated 3–6 months for a positive opinion."
+            "Condiții favorabile. Inițiați cererea ANRE de acces la rețea imediat; "
+            "estimat 3–6 luni pentru opinie favorabilă."
         )
     return f"{p1}\n\n{p2}\n\n{p3}"
 
@@ -486,15 +440,13 @@ class EvaluateRequest(BaseModel):
 @app.post("/api/evaluate-risk")
 async def evaluate_risk(req: EvaluateRequest):
     if req.requested_mw <= 0:
-        raise HTTPException(400, detail="Requested capacity must be a positive value.")
+        raise HTTPException(400, detail="Capacitatea solicitată trebuie să fie pozitivă.")
 
     station_name, dist_km, station_coords = find_closest_station(req.lat, req.lon)
-    cap  = get_capacity_data(station_name, station_coords, req.requested_mw)
-    risk = compute_risk_score(req.requested_mw, cap)
-
+    raw = resolve_raw_inputs(station_name, station_coords)
     capex_eur, capex_per_mw = estimate_capex(dist_km, req.requested_mw)
 
-    geo_task = geo_service.evaluate_route(
+    geo_task       = geo_service.evaluate_route(
         site_lat=req.lat, site_lon=req.lon,
         station_lat=station_coords["lat"], station_lon=station_coords["lon"],
         dist_km=dist_km,
@@ -503,73 +455,117 @@ async def evaluate_risk(req: EvaluateRequest):
     elevation_task = fetch_elevation(req.lat, req.lon)
 
     results = await asyncio.gather(geo_task, solar_task, elevation_task, return_exceptions=True)
-
     geo_result, solar_irradiance, elevation = results
 
     if isinstance(geo_result, Exception):
         print(f"[WARN] Geo analysis failed: {geo_result}")
-        env_flag          = False
-        route_score       = None
-        crossed_areas     = []
-        route_violations  = []
-        constraint_source = "unavailable"
+        env_flag, route_score, crossed_areas = False, None, []
+        route_violations, constraint_source  = [], "unavailable"
         violations_for_insight: list[Violation] = []
     else:
         env_flag          = geo_result.env_flag
         route_score       = geo_result.total
         crossed_areas     = geo_result.crossed_areas
-        route_violations = [
-            {
-                "category": v.category,
-                "name":     v.name,
-                "penalty":  v.penalty,
-                "detail":   v.detail,
-            }
+        route_violations  = [
+            {"category": v.category, "name": v.name, "penalty": v.penalty, "detail": v.detail}
             for v in geo_result.violations
         ]
         constraint_source       = geo_result.constraint_source
         violations_for_insight  = geo_result.violations
-    
+
     if isinstance(solar_irradiance, Exception):
         solar_irradiance = 1250.0
     if isinstance(elevation, Exception):
         elevation = 0
 
+    # ── Multi-factor congestion risk (route_score now INTEGRATED) ──────
+    breakdown: CongestionBreakdown = congestion_service.score(
+        lat=req.lat,
+        lon=req.lon,
+        zona=raw["zona"],
+        judet=raw["judet"],
+        station=station_name,
+        requested_mw=req.requested_mw,
+        dist_km=dist_km,
+        mw_aprobat=raw["mw_aprobat"],
+        mw_zona_totala=raw["mw_zona_totala"],
+        mw_zona_ramasa=raw["mw_zona_ramasa"],
+        route_score=route_score,
+        route_source=constraint_source,
+    )
+
     insight = generate_insight(
         station=station_name,
         dist_km=dist_km,
-        cap=cap,
-        risk=risk,
-        mw=req.requested_mw,
+        breakdown=breakdown,
         env_flag=env_flag,
         crossed_areas=crossed_areas,
-        route_score=route_score,
         violations=violations_for_insight,
     )
 
     return {
         "closest_station":    station_name,
-        "distance_km":        dist_km,
-        "capacity_left":      cap["cap_ramasa_statie"],
-        "risk_score":         risk,
-        "ai_insight":         insight,
         "station_lat":        station_coords["lat"],
         "station_lon":        station_coords["lon"],
-        "zona_retea":         cap["zona"],
-        "judet_statie":       cap["judet"],
-        "mw_aprobat_statie":  cap["mw_aprobat_statie"],
-        "mw_zona_ramasa":     cap["mw_zona_ramasa"],
-        "mw_zona_totala":     cap["mw_zona_totala"],
-        "capex_eur":          capex_eur,
-        "capex_per_mw":       capex_per_mw,
-        "resource_efficiency": solar_irradiance,
-        "elevation_meters":   elevation,
+        "judet_statie":       breakdown.capacity.judet,
+        "zona_retea":         breakdown.capacity.zona,
+        "distance_km":        dist_km,
 
+        # Risk (multi-factor v5)
+        "risk_score":         breakdown.total,
+        "risk_label":         breakdown.risk_label,
+        "risk_breakdown": {
+            "station_saturation": {
+                "raw":     round(breakdown.station_saturation.raw * 100, 1),
+                "weighted": round(breakdown.station_saturation.weighted * 100, 1),
+                "label":   breakdown.station_saturation.label,
+            },
+            "zone_saturation": {
+                "raw":     round(breakdown.zone_saturation.raw * 100, 1),
+                "weighted": round(breakdown.zone_saturation.weighted * 100, 1),
+                "label":   breakdown.zone_saturation.label,
+            },
+            "location_pressure": {
+                "raw":              round(breakdown.location_pressure.raw * 100, 1),
+                "weighted":         round(breakdown.location_pressure.weighted * 100, 1),
+                "label":            breakdown.location_pressure.label,
+                "nearest_city":     breakdown.location.nearest_city,
+                "nearest_city_km":  breakdown.location.nearest_city_dist_km,
+            },
+            "distance_penalty": {
+                "raw":     round(breakdown.distance_penalty.raw * 100, 1),
+                "weighted": round(breakdown.distance_penalty.weighted * 100, 1),
+                "label":   breakdown.distance_penalty.label,
+            },
+            "route_constraint": {
+                "raw":     round(breakdown.route_constraint.raw * 100, 1),
+                "weighted": round(breakdown.route_constraint.weighted * 100, 1),
+                "label":   breakdown.route_constraint.label,
+                "source":  constraint_source,
+            },
+        },
+
+        # Capacity
+        "mw_aprobat_statie":  breakdown.capacity.mw_aprobat_statie,
+        "mw_cap_estimated":   breakdown.capacity.mw_cap_estimated,
+        "capacity_left":      breakdown.capacity.mw_remaining,
+        "mw_zona_totala":     breakdown.capacity.mw_zona_totala,
+        "mw_zona_ramasa":     breakdown.capacity.mw_zona_ramasa,
+
+        # Geo
         "env_flag":           env_flag,
         "route_score":        route_score,
         "crossed_areas":      crossed_areas,
         "route_violations":   route_violations,
         "constraint_source":  constraint_source,
+
+        # Commercial
+        "capex_eur":          capex_eur,
+        "capex_per_mw":       capex_per_mw,
+        "resource_efficiency": solar_irradiance,
+        "elevation_meters":   elevation,
+
+        "ai_insight":         insight,
     }
 
 
@@ -582,5 +578,5 @@ async def health():
         "stations_known":    len(STATION_STATS),
         "ai_enabled":        openai_client is not None,
         "geo_cache_entries": len(geo_service._constraints._cache),
-        "version":           "4.0.0",
+        "version":           "5.0.0",
     }
