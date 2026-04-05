@@ -128,11 +128,8 @@ class ScoringEngine:
                 detail={
                     "protection_type": area.protection_type,
                     "iucn_level":      area.iucn_level or "unknown",
-                    # Geographic centroid — used by the frontend to render
-                    # a dynamic circle overlay on the map.
                     "centroid_lat":    round(centroid.y, 6),
                     "centroid_lon":    round(centroid.x, 6),
-                    # Estimated display radius so the circle scales with the area.
                     "display_radius_m": round(radius_m, 0),
                 },
             ))
@@ -141,15 +138,12 @@ class ScoringEngine:
 
         raw_env = min(raw_env, p.protected_area_cap)
 
-        # ── Infrastructure: line crossings ────────────────────────────────
         raw_infra = 0.0
 
         for line in constraints.infrastructure:
             if line.geometry is None:
                 continue
-            # Use `intersects` rather than `crosses`: a path that touches
-            # but doesn't cleanly cross (e.g., runs parallel then dips in)
-            # still incurs an infrastructure constraint cost.
+   
             if not path.intersects(line.geometry):
                 continue
 
@@ -172,11 +166,9 @@ class ScoringEngine:
 
         raw_infra = min(raw_infra, p.infrastructure_cap)
 
-        # ── Distance ───────────────────────────────────────────────────────
         excess_km = max(0.0, dist_km - p.distance_free_km)
         raw_dist  = min(excess_km * p.distance_per_km, p.distance_cap)
 
-        # ── Weighted components ────────────────────────────────────────────
         env_component   = round(raw_env   * w.environment,    2)
         dist_component  = round(raw_dist  * w.distance,       2)
         infra_component = round(raw_infra * w.infrastructure, 2)

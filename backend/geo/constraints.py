@@ -73,7 +73,6 @@ out geom;
 """.strip()
 
 
-# ── Provider ──────────────────────────────────────────────────────────────────
 
 class ConstraintProvider:
     """
@@ -86,8 +85,6 @@ class ConstraintProvider:
     def __init__(self, config: OverpassConfig) -> None:
         self._cfg   = config
         self._cache: dict[str, ConstraintData] = {}
-
-    # ── Public API ─────────────────────────────────────────────────────────────
 
     async def get_constraints(
         self,
@@ -113,8 +110,6 @@ class ConstraintProvider:
             self._fetch_infrastructure(bbox),
             return_exceptions=True,
         )
-
-        # Degrade gracefully: treat exceptions as empty lists
         if isinstance(protected, Exception):
             print(f"[WARN] Protected area fetch error: {protected}")
             protected = []
@@ -131,16 +126,12 @@ class ConstraintProvider:
         self._cache[key] = data
         return data
 
-    # ── Cache helpers ──────────────────────────────────────────────────────────
-
     def _cache_key(self, bbox: Tuple[float, float, float, float]) -> str:
         s, w, n, e = bbox
         return f"{s:.2f},{w:.2f},{n:.2f},{e:.2f}"
 
     def _cache_valid(self, data: ConstraintData) -> bool:
         return (time.time() - data.fetched_at) < self._cfg.cache_ttl_h * 3600
-
-    # ── Overpass fetch methods ─────────────────────────────────────────────────
 
     async def _fetch_protected_areas(
         self, bbox: Tuple[float, float, float, float]
@@ -167,8 +158,6 @@ class ConstraintProvider:
             )
             resp.raise_for_status()
             return resp.json().get("elements", [])
-
-    # ── Element parsers ────────────────────────────────────────────────────────
 
     def _parse_protected(self, elements: list) -> List[ProtectedArea]:
         seen: set[int] = set()
@@ -234,7 +223,6 @@ class ConstraintProvider:
 
         return lines
 
-    # ── Geometry builder ───────────────────────────────────────────────────────
 
     def _element_to_polygon(self, el: dict) -> Optional[Polygon]:
         el_type = el.get("type")
@@ -243,7 +231,6 @@ class ConstraintProvider:
             return polygon_from_nodes(el.get("geometry", []))
 
         if el_type == "relation":
-            # Collect outer member rings; ignore inner (holes) for now
             outer_rings: List[Polygon] = []
             for member in el.get("members", []):
                 if member.get("role") != "outer":
@@ -262,7 +249,6 @@ class ConstraintProvider:
             if merged.geom_type == "Polygon":
                 return merged
             if merged.geom_type == "MultiPolygon":
-                # Return the largest sub-polygon as a representative geometry
                 return max(merged.geoms, key=lambda g: g.area)
             return None
 

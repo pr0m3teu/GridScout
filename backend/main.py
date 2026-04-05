@@ -27,7 +27,6 @@ app.add_middleware(
 _openai_key   = os.getenv("OPENAI_KEY", "")
 openai_client = OpenAI(api_key=_openai_key) if _openai_key else None
 
-# Single shared instance — holds the in-memory constraint cache
 geo_service = GeoAnalysisService(DEFAULT_CONFIG)
 
 LINE_COST_EUR_PER_KM = 90_000.0
@@ -381,33 +380,32 @@ def generate_insight(
     violations_str  = _format_violations_for_prompt(violations)
     route_score_str = f"{route_score:.1f}/100" if route_score is not None else "unavailable"
 
-    prompt = f"""You are an expert consultant in Romanian electrical grid interconnection.
-Generate a professional assessment in exactly 3 paragraphs, in English, no titles, lists, or bullets.
-Tone: expert B2B, precise, actionable. Address the investor directly ("your project", "your site").
-Base your analysis strictly on the data below.
+    prompt = f"""Actioneaza ca un consultant expert în interconectarea la rețeaua electrică din România.
+Generați o evaluare profesională în exact 3 paragrafe, în limba română, fără titluri, liste sau marcatori.
+Ton: expert B2B, precis, orientat spre acțiune. Adresați-vă direct investitorului ("proiectul dumneavoastră", "amplasamentul dumneavoastră").
+Bazați-vă analiza strict pe datele de mai jos.
 
-ANALYSIS DATA:
-- Interconnection substation: {station}
-- County / ANRE network zone: {cap.get('judet')} / Zone {cap.get('zona')}
-- Distance from site to substation: {dist_km} km
-- Requested capacity: {mw} MW
-- Approved capacity at substation (ANRE data): {cap.get('mw_aprobat_statie')} MW
-- Remaining substation capacity: {cap.get('cap_ramasa_statie')} MW
-- Total zone capacity — Zone {cap.get('zona')} (ANRE Order 137/2021): {cap.get('mw_zona_totala')} MW
-- Remaining zone capacity: {cap.get('mw_zona_ramasa')} MW
-- Congestion risk score: {risk}% (higher = worse)
-- Route viability score: {route_score_str} (higher = better)
-- Route constraints detected:
+DATE DE ANALIZĂ:
+- Stația de interconectare: {station}
+- Județ / Zona de rețea ANRE: {cap.get('judet')} / Zona {cap.get('zona')}
+- Distanța de la amplasament la stație: {dist_km} km
+- Capacitatea solicitată: {mw} MW
+- Capacitatea aprobată în stație (date ANRE): {cap.get('mw_aprobat_statie')} MW
+- Capacitatea rămasă în stație: {cap.get('cap_ramasa_statie')} MW
+- Capacitatea totală a zonei — Zona {cap.get('zona')} (Ordinul ANRE 137/2021): {cap.get('mw_zona_totala')} MW
+- Capacitatea rămasă a zonei: {cap.get('mw_zona_ramasa')} MW
+- Scorul de risc de congestie: {risk}% (mai mare = mai rău)
+- Scorul de viabilitate a traseului: {route_score_str} (mai mare = mai bine)
+- Constrângeri de traseu detectate:
 {violations_str}
 {env_block}
 
-STRUCTURE:
-Paragraph 1: State of the substation and network zone relative to the site distance.
-Paragraph 2: Analyse the {risk}% congestion risk and the {route_score_str} route viability, explaining implications for the {mw} MW request.{' Prominently address the protected area crossings.' if env_flag else ''}
-Paragraph 3: Direct, actionable recommendation (grid access request, solution study, procedural risks, or alternative site).
+STRUCTURĂ:
+Paragraful 1: Starea stației și a zonei de rețea în raport cu distanța față de amplasament.
+Paragraful 2: Analizați riscul de congestie de {risk}% și viabilitatea traseului de {route_score_str}, explicând implicațiile pentru cererea de {mw} MW.{' Abordați cu prioritate traversările zonelor protejate.' if env_flag else ''}
+Paragraful 3: Recomandare directă, acționabilă (cerere de acces la rețea, studiu de soluție, riscuri procedurale sau amplasament alternativ).
 
-Respond ONLY with the 3 paragraphs separated by a blank line. No other text."""
-
+Răspundeți DOAR cu cele 3 paragrafe separate de un rând liber. Fără niciun alt text."""
     if openai_client:
         try:
             # Uses the standard Chat Completions API (compatible with openai>=1.30.0)
@@ -489,8 +487,7 @@ async def evaluate_risk(req: EvaluateRequest):
 
     capex_eur, capex_per_mw = estimate_capex(dist_km, req.requested_mw)
 
-    # Run geo analysis and external data fetches concurrently
-    geo_task       = geo_service.evaluate_route(
+    geo_task = geo_service.evaluate_route(
         site_lat=req.lat, site_lon=req.lon,
         station_lat=station_coords["lat"], station_lon=station_coords["lon"],
         dist_km=dist_km,
@@ -502,7 +499,6 @@ async def evaluate_risk(req: EvaluateRequest):
 
     geo_result, solar_irradiance, elevation = results
 
-    # Geo analysis: degrade gracefully if Overpass is unreachable
     if isinstance(geo_result, Exception):
         print(f"[WARN] Geo analysis failed: {geo_result}")
         env_flag          = False
@@ -515,8 +511,6 @@ async def evaluate_risk(req: EvaluateRequest):
         env_flag          = geo_result.env_flag
         route_score       = geo_result.total
         crossed_areas     = geo_result.crossed_areas
-        # Serialize violation objects — detail already contains centroid_lat/lon
-        # for protected areas so the frontend can render dynamic map overlays.
         route_violations = [
             {
                 "category": v.category,
@@ -528,8 +522,7 @@ async def evaluate_risk(req: EvaluateRequest):
         ]
         constraint_source       = geo_result.constraint_source
         violations_for_insight  = geo_result.violations
-
-    # External data fallbacks
+    
     if isinstance(solar_irradiance, Exception):
         solar_irradiance = 1250.0
     if isinstance(elevation, Exception):
@@ -548,7 +541,6 @@ async def evaluate_risk(req: EvaluateRequest):
     )
 
     return {
-        # ── Grid capacity ────────────────────────────────────────────────
         "closest_station":    station_name,
         "distance_km":        dist_km,
         "capacity_left":      cap["cap_ramasa_statie"],
@@ -566,17 +558,10 @@ async def evaluate_risk(req: EvaluateRequest):
         "resource_efficiency": solar_irradiance,
         "elevation_meters":   elevation,
 
-        # ── Geo analysis ─────────────────────────────────────────────────
-        # env_flag: backward-compat boolean — True if any protected area crossed
         "env_flag":           env_flag,
-        # route_score: 0–100, higher = more viable route
         "route_score":        route_score,
-        # crossed_areas: human-readable list of protected area names
         "crossed_areas":      crossed_areas,
-        # route_violations: full violation list; protected area entries include
-        # centroid_lat / centroid_lon / display_radius_m for map rendering
         "route_violations":   route_violations,
-        # constraint_source: "overpass" | "cache" | "fallback" | "unavailable"
         "constraint_source":  constraint_source,
     }
 

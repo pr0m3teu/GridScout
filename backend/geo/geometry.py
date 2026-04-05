@@ -1,10 +1,3 @@
-"""
-Geometry utilities: path construction, metric buffering, bounding box.
-
-All public functions operate on (lat, lon) tuples (WGS84).
-Shapely LineString / Polygon internals use (lon, lat) order as per GeoJSON convention.
-"""
-
 import math
 from typing import List, Optional, Tuple
 
